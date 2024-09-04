@@ -9,6 +9,8 @@ In the case of cartpole-v1 the number of states `4^n`, where `N` is the amount o
 
 ![Cumulative Reward](images/cumulative_reward.png)
 
+![Graphs](images/full_screenshot.png)
+
 ## Setup
 
 ```python
