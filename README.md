@@ -1,8 +1,15 @@
 # Cartpole-V1 consistent max-score in about 10,000 frames
 
-This is a model-based Double-DQN policy. The architecture is show below:
+This is a model-free Double-DQN policy, which uses a sub-policy of predicting the next action to improve training.
 
+## Architecture
 ![Architecture](images/model_architecture.png)
+
+## Inference
+![Inference Graph](images/inference_graph.png)
+
+## Training
+![Training Graph](images/training_graph.png)
 
 It is commonly thought that reinforcement learning methods (particularly DQN) need millions of training samples to reach optimality.
 In the case of cartpole-v1 the number of states `4^n`, where `n` is the amount of sub-segements 1 unit of the number line is broken into into. However, the transitions between states are relatively continuous and therefore should easily be graphed. In-fact cartpole v1 has been solved in 0-shot learning with other algorithms.
@@ -37,4 +44,3 @@ DISABLE_RANDOM = False # Disable epsilon_greedy exploration function. [Default: 
 SAVING_ENABLED = False # Enable saving of model files. [Default: True]
 LEARNING_ENABLED = True # Enable model training. [Default: True]
 ```
-
