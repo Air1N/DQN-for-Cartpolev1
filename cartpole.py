@@ -572,7 +572,7 @@ def main():
             render_mode = None
 
         # Load a new version of the environment with the chosen render_mode
-        env = gym.make('CartPole-v1', render_mode=render_mode)
+        env = gym.make(environment_name, render_mode=render_mode)
         next_obs, info = env.reset()
 
         if render_mode != None: env.render()

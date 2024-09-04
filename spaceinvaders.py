@@ -11,8 +11,14 @@ import time
 import gymnasium as gym
 from tqdm import tqdm
 
+from ale_py import ALEInterface
+ale = ALEInterface()
+
+from ale_py.roms import SpaceInvaders
+ale.loadROM(SpaceInvaders)
+
 # Set the environment name. This model is currently tested on CartPole-v1
-environment_name = 'LunarLander-v2'
+environment_name = 'ALE/SpaceInvaders-v5'
 env = gym.make(environment_name, render_mode='human')
 
 # Choose device automatically
@@ -56,7 +62,7 @@ HARD_COPY_INTERVAL = 10000 # Number of steps before doing a hard-copy. pred_mode
 GAMMA = 0.9 # Affects how much the model takes into account future Q-values in the current state. target_output = reward + GAMMA * pred_model(next_state)[actor_model(next_state).argmax()] -- Standard DDQN implementation
 TAU = 0.0001 # Affects the speed of parameter transfer during soft-copy. pred_model.params += actor_model.params * TAU. High numbers result in instability. [Default: 0.0001]
 
-ACTOR_LR = 0.000015 # Learning rate used in the optimizer. [Default: 0.00015]
+ACTOR_LR = 0.00015 # Learning rate used in the optimizer. [Default: 0.00015]
 
 REWARD_SCALING = 25 # These are for use more complex reward-shape problems. [Default: +25]
 MIN_REWARD = -1 # These are for use in more complex reward-shape problems. [Default: -1]
@@ -71,15 +77,17 @@ DISABLE_RANDOM = False # Disable epsilon_greedy exploration function. [Default: 
 SAVING_ENABLED = True # Enable saving of model files. [Default: True]
 LEARNING_ENABLED = True # Enable model training. [Default: True]
 
-eps = 0.5 # Starting epsilon value, used in the epsilon_greedy policy. [Default: 0.5]
+eps = 0.05 # Starting epsilon value, used in the epsilon_greedy policy. [Default: 0.5]
 EPS_DECAY = 0.0001 # How much epsilon decays each time a random action is chosen. [Default: 0.0001]
-MIN_EPS = 0.01 # Minimum epsilon/random action chance. Keep this above 0 to encourage continued learning. [Default: 0.01]
+MIN_EPS = 0.05 # Minimum epsilon/random action chance. Keep this above 0 to encourage continued learning. [Default: 0.01]
 
 PLOT_DETAIL = 10000 # The maximum number of points to display at once, afterward this amount of points will be uniformly pulled from the set of all points.
 MEDIAN_SMOOTHING = 0 # The amount to divide by for median smooth. In this case, 0 = off. 1 should also = off.
 
-# Surprisal is calculated by taking the sqrt(sum(abs(next_state - predicted_next_state)))
-SURPRISAL_WEIGHT = 0.004 # The amount that surprisal influences the reward function. [Default: 0.01]
+# Surprisal is calculated by taking the sum(abs(next_state_batch - next_state_guess)**exponent)
+SURPRISAL_WEIGHT = 0.04 # The amount that surprisal influences the reward function. [Default: 0.01]
+SURPRISAL_EXPONENT = 2 # The exponent applied to individual differences in next state guess. Essentially, how influential are outliers. [Default: 2]
+SURPRISAL_MINUS = 5
 
 plt.ion()
 fig, axs = plt.subplots(2, 2) # Generate original figure for matplotlib
@@ -581,11 +589,12 @@ def model_train(batch_size):
     # Get the new model output for each state in the batch, including a guess at the next state
     state_values, next_state_guess = actor_model.forward(state_batch, real_actions=action_batch, training=True)
     pred_diff = next_state_batch - next_state_guess
-    abs_pred_diff = torch.abs(pred_diff)
-    surprisal = torch.sqrt(torch.sum(abs_pred_diff, 1))
-    reward_batch += surprisal * SURPRISAL_WEIGHT
+    abs_pred_diff = torch.abs(pred_diff)**SURPRISAL_EXPONENT
+    surprisal = torch.sum(abs_pred_diff, 1)
+    scaled_surprisal = (surprisal - SURPRISAL_MINUS) * SURPRISAL_WEIGHT
+    reward_batch += scaled_surprisal
 
-    multiplot.add_entry("surprisal", torch.sum(surprisal).cpu().detach().numpy())
+    multiplot.add_entry("surprisal", torch.sum(scaled_surprisal).cpu().detach().numpy())
     
     # Gather the Q-value of the actual actions chosen.
     state_actions = state_values.gather(1, action_batch.unsqueeze(1)) # 64, 1
@@ -604,7 +613,7 @@ def model_train(batch_size):
 
     # Loss is the difference between the target outputs and the real outputs,
     # plus the difference between the next state and the predicted next state.
-    actor_criterion = nn.MSELoss()
+    actor_criterion = nn.HuberLoss()
     actor_loss = actor_criterion(state_actions, target_output) + actor_criterion(next_state_guess, next_state_batch)
     actor_optimizer.zero_grad()
     actor_loss.backward()
