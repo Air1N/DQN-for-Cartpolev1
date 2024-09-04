@@ -30,8 +30,6 @@ If you want to train a new model you can change some lines:
 model_to_load = "" #"models/actor_model_23500.pth"
 step = 0 # This is here because it's appended to the name of the save file, it counts up by 1 each frame. [Default: 0]
 
-TRAIN_INTERVAL = 1 # The number of frames between each training step. [Default: 1]
-
 SNAPSHOT_INTERVAL = 1 # The number of epochs between showing the human visualization. [Default: 25]
 SHOW_FIRST = True # Regardless of snapshot interval, epoch 0 won't show a visualization, unless this is TRUE. [Default: False]
 
