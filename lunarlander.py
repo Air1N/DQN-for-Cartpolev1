@@ -78,8 +78,9 @@ MIN_EPS = 0.01 # Minimum epsilon/random action chance. Keep this above 0 to enco
 PLOT_DETAIL = 10000 # The maximum number of points to display at once, afterward this amount of points will be uniformly pulled from the set of all points.
 MEDIAN_SMOOTHING = 0 # The amount to divide by for median smooth. In this case, 0 = off. 1 should also = off.
 
-# Surprisal is calculated by taking the sqrt(sum(abs(next_state - predicted_next_state)))
+# Surprisal is calculated by taking the sum(abs(next_state_batch - next_state_guess)**exponent)
 SURPRISAL_WEIGHT = 0.004 # The amount that surprisal influences the reward function. [Default: 0.01]
+SURPRISAL_EXPONENT = 2 # The exponent applied to individual differences in next state guess. [Default: 2]
 
 plt.ion()
 fig, axs = plt.subplots(2, 2) # Generate original figure for matplotlib
@@ -581,9 +582,11 @@ def model_train(batch_size):
     # Get the new model output for each state in the batch, including a guess at the next state
     state_values, next_state_guess = actor_model.forward(state_batch, real_actions=action_batch, training=True)
     pred_diff = next_state_batch - next_state_guess
-    abs_pred_diff = torch.abs(pred_diff)
-    surprisal = torch.sqrt(torch.sum(abs_pred_diff, 1))
+    abs_pred_diff = torch.abs(pred_diff)**SURPRISAL_EXPONENT
+    surprisal = torch.sum(abs_pred_diff, 1)
     reward_batch += surprisal * SURPRISAL_WEIGHT
+
+    print(surprisal * SURPRISAL_WEIGHT)
 
     multiplot.add_entry("surprisal", torch.sum(surprisal).cpu().detach().numpy())
     
@@ -604,7 +607,7 @@ def model_train(batch_size):
 
     # Loss is the difference between the target outputs and the real outputs,
     # plus the difference between the next state and the predicted next state.
-    actor_criterion = nn.MSELoss()
+    actor_criterion = nn.HuberLoss()
     actor_loss = actor_criterion(state_actions, target_output) + actor_criterion(next_state_guess, next_state_batch)
     actor_optimizer.zero_grad()
     actor_loss.backward()
