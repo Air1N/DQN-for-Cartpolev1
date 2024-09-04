@@ -19,6 +19,7 @@ The state, action, next state, and reward are saved into a transition, to be use
 ## Training
 ![Training Graph](images/training_graph.png)
 Given a previous transition, containing state, action, next state, and reward. The model is a Double-DQN where the policy network predicts the next action, and the target net, which is essentially an infrequently-copied copy of the policy network. The target net predicts the Q-value of the predicted action for training stability.
+Note: Action (top left), and Action (top center) are the same.
 
 ## Graphs
 ![Graphs](images/full_screenshot.png)
