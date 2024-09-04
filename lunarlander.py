@@ -44,8 +44,8 @@ INPUT_N_STATES = 4 # The number of consecutive states to be concatenated for the
 TRAIN_INTERVAL = 1 # The number of frames between each training step. [Default: 1]
 SAVE_INTERVAL = 5000 # The number of frames between saving the model to a file. [Default: 500]
 
-EPOCHS = 500 # This determines the maximum length the program will run for, in epochs. [Default: 500]
-EPISODES_PER_EPOCH = 10 # This determines how many episodes, playing until termination, there are in each epoch. [Default: 10]
+EPOCHS = 5000 # This determines the maximum length the program will run for, in epochs. [Default: 500]
+EPISODES_PER_EPOCH = 1 # This determines how many episodes, playing until termination, there are in each epoch. [Default: 10]
 
 SNAPSHOT_INTERVAL = 1 # The number of epochs between showing the human visualization. [Default: 25]
 SHOW_FIRST = True # Regardless of snapshot interval, epoch 0 won't show a visualization, unless this is TRUE. [Default: False]
@@ -53,19 +53,19 @@ SHOW_FIRST = True # Regardless of snapshot interval, epoch 0 won't show a visual
 SOFT_COPY_INTERVAL = 1 # Number of steps before doing a soft-copy. pred_model.params += actor_model.params * TAU. [Default: 1]
 HARD_COPY_INTERVAL = 10000 # Number of steps before doing a hard-copy. pred_model = actor_model. [Default: 10000]
 
-GAMMA = 0.99 # Affects how much the model takes into account future Q-values in the current state. target_output = reward + GAMMA * pred_model(next_state)[actor_model(next_state).argmax()] -- Standard DDQN implementation
+GAMMA = 0.9 # Affects how much the model takes into account future Q-values in the current state. target_output = reward + GAMMA * pred_model(next_state)[actor_model(next_state).argmax()] -- Standard DDQN implementation
 TAU = 0.0001 # Affects the speed of parameter transfer during soft-copy. pred_model.params += actor_model.params * TAU. High numbers result in instability. [Default: 0.0001]
 
-ACTOR_LR = 0.00015 # Learning rate used in the optimizer. [Default: 0.00015]
+ACTOR_LR = 0.000015 # Learning rate used in the optimizer. [Default: 0.00015]
 
 REWARD_SCALING = 25 # These are for use more complex reward-shape problems. [Default: +25]
 MIN_REWARD = -1 # These are for use in more complex reward-shape problems. [Default: -1]
 MAX_REWARD = 1 # These are for use in more complex reward-shape problems. [Default: +1]
 
 REWARD_AFFECT_PAST_N = 10 # Affect how many previous reward states, each with diminishing effects. [Default: 4]
-REWARD_AFFECT_THRESH = [-0.8, 2] # At what thresholds does the reward propogate to the previous samples? [Default: [-0.8, 2]]
+REWARD_AFFECT_THRESH = [-5, 5] # At what thresholds does the reward propogate to the previous samples? [Default: [-0.8, 2]]
 
-MEMORY_REWARD_THRESH = 0.04 # Assume  anything with less abs(reward) isn't useful to learn, and exclude it from memory [Default: 0.04]
+MEMORY_REWARD_THRESH = 0.00 # Assume  anything with less abs(reward) isn't useful to learn, and exclude it from memory [Default: 0.04]
 
 DISABLE_RANDOM = False # Disable epsilon_greedy exploration function. [Default: False]
 SAVING_ENABLED = True # Enable saving of model files. [Default: True]
@@ -74,6 +74,11 @@ LEARNING_ENABLED = True # Enable model training. [Default: True]
 eps = 0.5 # Starting epsilon value, used in the epsilon_greedy policy. [Default: 0.5]
 EPS_DECAY = 0.0001 # How much epsilon decays each time a random action is chosen. [Default: 0.0001]
 MIN_EPS = 0.01 # Minimum epsilon/random action chance. Keep this above 0 to encourage continued learning. [Default: 0.01]
+
+PLOT_DETAIL = 10000 # The maximum number of points to display at once, afterward this amount of points will be uniformly pulled from the set of all points.
+MEDIAN_SMOOTHING = 0 # The amount to divide by for median smooth. In this case, 0 = off. 1 should also = off.
+
+SURPRISAL_WEIGHT = 0.004 # The amount that surprisal influences the reward function. [Default: 0.01]
 
 plt.ion()
 fig, axs = plt.subplots(2, 2) # Generate original figure for matplotlib
@@ -87,6 +92,7 @@ class Multiplot():
         names (list[str]): The list of line names, including row-breaks/column-breaks with "rb" and "cb".
     """
     def __init__(self, names):
+        global fig, axs
         """
         The constructor for the Multiplot class.
 
@@ -95,10 +101,32 @@ class Multiplot():
         """
         self.plots = {} 
         self.names = names
-
+        
         # Initialize empty array for each named line, excluding rb and cb flags
+        ax_idx = [0, 0]
+        curr_ax = axs[0][0]
         for n in names:
-            if n != "rb" and n!= "cb": self.plots[n] = []
+            if n != "rb" and n!= "cb":
+                self.plots[n] = []
+
+            if n == "rb":
+                ax_idx[0] += 1
+
+            # Column break
+            if n == "cb":
+                ax_idx[1] += 1
+                ax_idx[0] = 0
+
+            # After changing curr_ax position, clear it.
+            if n == "cb" or n == "rb":
+                curr_ax = axs[ax_idx[0], ax_idx[1]]
+                continue
+
+            curr_ax.plot([0, 0], label=n)
+            curr_ax.legend()
+
+            fig.canvas.draw()
+            fig.canvas.flush_events()
 
     def add_entry(self, name, entry):
         """
@@ -117,10 +145,11 @@ class Multiplot():
         """
         global fig, axs
         ax_idx = [0, 0]
+        line_idx = 0
 
         # Clear the top left box, since it will not be preceded by an row break (rb) or column break (cb)
         curr_ax = axs[0, 0]
-        curr_ax.clear()
+        lines = curr_ax.get_lines()
 
         # Loop through the names
         for name in self.names:
@@ -136,18 +165,35 @@ class Multiplot():
             # After changing curr_ax position, clear it.
             if name == "cb" or name == "rb":
                 curr_ax = axs[ax_idx[0], ax_idx[1]]
-                curr_ax.clear()
+                lines = curr_ax.get_lines()
+                line_idx = 0
                 continue
             
             # If the named line has any points, plot them w/ legend
             if len(self.plots[name]) > 0:
-                curr_ax.plot(np.array(self.plots.get(name)), label=name)
-                curr_ax.legend()
-        
+                np_plot = np.array(self.plots.get(name))
+                
+                idxs = np.linspace(0, len(np_plot) - 1, min(len(np_plot), PLOT_DETAIL))
+                
+                if len(np_plot) > PLOT_DETAIL:
+                    np_plot = [np_plot[int(i)] for i in idxs]
+
+                if MEDIAN_SMOOTHING > 0:
+                    median = np.median(np_plot)
+                    smoothed_plot = median + (np_plot - median) / MEDIAN_SMOOTHING
+                else: smoothed_plot = np_plot
+
+                x = np.linspace(0, step - 1, min(len(smoothed_plot), PLOT_DETAIL))
+                lines[line_idx].set_data(x, smoothed_plot)
+            
+            curr_ax.relim()
+            curr_ax.autoscale()
+
+            line_idx += 1
         # Redraw the figure
         fig.canvas.draw()
         fig.canvas.flush_events()
-        plt.tight_layout()
+        fig.tight_layout()
 
 class TimeTracker():
     """
@@ -195,7 +241,7 @@ class TimeTracker():
 # torch.autograd.set_detect_anomaly(True)
 torch.set_printoptions(2, sci_mode=False)
 
-multiplot = Multiplot(names=("a_loss", "rb", "real_reward", "cumulative_reward", "cb", "grad_norm", "rb", "output_0", "output_1"))
+multiplot = Multiplot(names=("a_loss", "rb", "real_reward", "cumulative_reward", "natural_reward", "cb", "surprisal", "grad_norm", "rb", "output_0", "output_1", "output_2", "output_3"))
 
 class CustomDQN(torch.nn.Module):
     """
@@ -228,7 +274,7 @@ class CustomDQN(torch.nn.Module):
         self.lin_2a = nn.Linear(64, 64)
         self.lin_oA = nn.Linear(64, env.action_space.n)
 
-        self.lin_2b = nn.Linear(65, 64)
+        self.lin_2b = nn.Linear(64 + env.action_space.n, 64)
         self.lin_oB = nn.Linear(64, env.observation_space.shape[0] * INPUT_N_STATES)
 
     def forward(self, x, real_actions=None, training=False):
@@ -262,8 +308,10 @@ class CustomDQN(torch.nn.Module):
         if real_actions != None:
             chosen_actions = real_actions
 
+        one_hot_encoded_action = torch.zeros_like(a).scatter_(1, chosen_actions.unsqueeze(1), 1.)
+        
         # Second head predicts next state from state + Q-values
-        b = torch.cat((x, chosen_actions.unsqueeze(1)), dim=1)
+        b = torch.cat((x, one_hot_encoded_action), dim=1)
         b = F.leaky_relu(self.lin_2b(b))
         b = self.lin_oB(b)
 
@@ -445,10 +493,14 @@ def model_infer():
 
             multiplot.add_entry('output_0', float(out.clone()[0].tolist()[0]))
             multiplot.add_entry('output_1', float(out.clone()[0].tolist()[1]))
+            multiplot.add_entry('output_2', float(out.clone()[0].tolist()[2]))
+            multiplot.add_entry('output_3', float(out.clone()[0].tolist()[3]))
 
         Q, max_a = torch.max(out, dim=1)
 
         next_obs, reward, terminated, truncated, info = env.step(max_a.cpu().numpy()[0])
+        
+        multiplot.add_entry('natural_reward', reward)
 
         cumulative_reward += reward
         multiplot.add_entry('cumulative_reward', cumulative_reward)
@@ -527,6 +579,12 @@ def model_train(batch_size):
 
     # Get the new model output for each state in the batch, including a guess at the next state
     state_values, next_state_guess = actor_model.forward(state_batch, real_actions=action_batch, training=True)
+    pred_diff = next_state_batch - next_state_guess
+    abs_pred_diff = torch.abs(pred_diff)
+    surprisal = torch.sqrt(torch.sum(abs_pred_diff, 1))
+    reward_batch += surprisal * SURPRISAL_WEIGHT
+
+    multiplot.add_entry("surprisal", torch.sum(surprisal / SURPRISAL_WEIGHT).cpu().detach().numpy())
     
     # Gather the Q-value of the actual actions chosen.
     state_actions = state_values.gather(1, action_batch.unsqueeze(1)) # 64, 1
