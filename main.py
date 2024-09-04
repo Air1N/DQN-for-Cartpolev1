@@ -28,7 +28,7 @@ torch.manual_seed(123)
 print(f"device: {device}")
 
 # Path to the model file to load. Alternatively, "" to start with a fresh model.
-model_to_load = "models/actor_model_23500.pth"
+model_to_load = "" #"models/actor_model_23500.pth"
 
 # This is here because it's appended to the name of the save file, it counts up by 1 each frame. [Default: 0]
 step = 0
@@ -57,12 +57,12 @@ REWARD_SCALING = 25 # These are for use more complex reward-shape problems. [Def
 MIN_REWARD = -1 # These are for use in more complex reward-shape problems. [Default: -1]
 MAX_REWARD = 1 # These are for use in more complex reward-shape problems. [Default: +1]
 
-REWARD_AFFECT_PAST_N = 4 # Affect how many previous reward states, each with diminishing effects. [Default: 4]
+REWARD_AFFECT_PAST_N = 10 # Affect how many previous reward states, each with diminishing effects. [Default: 4]
 REWARD_AFFECT_THRESH = [-0.8, 2] # At what thresholds does the reward propogate to the previous samples? [Default: [-0.8, 2]]
 
 MEMORY_REWARD_THRESH = 0.04 # Assume  anything with less abs(reward) isn't useful to learn, and exclude it from memory [Default: 0.04]
 
-DISABLE_RANDOM = True # Disable epsilon_greedy exploration function. [Default: False]
+DISABLE_RANDOM = False # Disable epsilon_greedy exploration function. [Default: False]
 SAVING_ENABLED = False # Enable saving of model files. [Default: True]
 LEARNING_ENABLED = True # Enable model training. [Default: True]
 
@@ -375,22 +375,31 @@ def affect_short_mem(reward):
 
     # If short_memory is long enough:
     if len(short_memory) > REWARD_AFFECT_PAST_N:
-
-        # Remove the first element
-        short_mem = Transition(*short_memory.pop(0))
-
-        # Log it as real reward
-        multiplot.add_entry('real_reward', short_mem.reward.cpu().detach().numpy())
-        
-        # Put it into actor_mem (which is used for training), if the absolute value of the reward is high enough
-        if abs(short_mem.reward) > MEMORY_REWARD_THRESH:
-            actor_mem.push(short_mem)
+        send_short_to_long_mem(1)
 
     # Only apply if the current reward exceeds a threshold. 
     # Affect short_memory reward values based on reward recieved currently, diminishing for less recent events.
     if reward < REWARD_AFFECT_THRESH[0] or reward > REWARD_AFFECT_THRESH[1]:
         for i in range(0, len(short_memory)):
             short_memory[-i][3] += reward / (i + 1)
+
+def send_short_to_long_mem(n):
+    """
+    Sends the oldest `n` elements from short_memory to actor_mem.
+
+    Parameters:
+        n (int): The number of elements to send from short_memory to actor_mem.
+    """
+    for i in range(0, n):
+        # Remove the first element
+        short_mem = Transition(*short_memory.pop(0))
+
+        # Log it as real reward
+        multiplot.add_entry('real_reward', short_mem.reward.cpu().detach().numpy())
+
+        # Put it into actor_mem (which is used for training), if the absolute value of the reward is high enough
+        if abs(short_mem.reward) > MEMORY_REWARD_THRESH:
+            actor_mem.push(short_mem)
 
 
 # initialize observation tensors
@@ -435,23 +444,29 @@ def model_infer():
         cumulative_reward += reward
         multiplot.add_entry('cumulative_reward', cumulative_reward)
 
+        # terminated is if the pole falls. truncated is when the game times out.
         if terminated or truncated:
             next_obs, info = env.reset()
+            cumulative_reward = 0 # reset cumulative reward
             done = True # end episode
 
-            reward = -10 # punishment for losing
-            cumulative_reward = 0 # reset cumulative reward
 
-        next_obs = torch.tensor(next_obs).to(device)
-        reward = torch.tensor(np.expand_dims(reward, 0), dtype=torch.float32).to(device)
-        
+            if terminated:
+                reward = -10 # punishment for losing
+
         affect_short_mem(reward)
+        
+        next_obs = torch.tensor(next_obs).to(device)
         obs_stack.append(next_obs)
         next_state_tensor = torch.cat([*obs_stack], dim=0).to(device)
         
+        reward = torch.tensor(np.expand_dims(reward, 0), dtype=torch.float32).to(device)
+
         mem_block = [state_tensor, max_a, next_state_tensor.unsqueeze(0), reward]
 
         short_memory.append(mem_block)
+
+        if done: send_short_to_long_mem(len(short_memory))
 
         try_learning()
 
