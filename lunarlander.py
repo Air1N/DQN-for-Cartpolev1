@@ -586,8 +586,6 @@ def model_train(batch_size):
     surprisal = torch.sum(abs_pred_diff, 1) - 1
     reward_batch += surprisal * SURPRISAL_WEIGHT
 
-    print(surprisal * SURPRISAL_WEIGHT)
-
     multiplot.add_entry("surprisal", torch.sum(surprisal).cpu().detach().numpy())
     
     # Gather the Q-value of the actual actions chosen.
