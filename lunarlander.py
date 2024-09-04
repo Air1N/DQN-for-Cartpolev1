@@ -584,7 +584,7 @@ def model_train(batch_size):
     pred_diff = next_state_batch - next_state_guess
     abs_pred_diff = torch.abs(pred_diff)**SURPRISAL_EXPONENT
     surprisal = torch.sum(abs_pred_diff, 1)
-    reward_batch += surprisal * SURPRISAL_WEIGHT
+    reward_batch += (surprisal - 1) * SURPRISAL_WEIGHT
 
     print(surprisal * SURPRISAL_WEIGHT)
 
