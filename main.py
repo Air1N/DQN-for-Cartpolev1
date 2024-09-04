@@ -27,8 +27,11 @@ torch.manual_seed(123)
 
 print(f"device: {device}")
 
+# Path to the model file to load. Alternatively, "" to start with a fresh model.
 model_to_load = "models/actor_model_23500.pth"
-step = 23500
+
+# This is here because it's appended to the name of the save file, it counts up by 1 each frame. [Default: 0]
+step = 0
 
 BATCH_SIZE = 64 # The number of transitions per mini-batch [Default: 64]
 INPUT_N_STATES = 4 # The number of consecutive states to be concatenated for the observation/input. [Default: 4]
@@ -54,7 +57,7 @@ REWARD_SCALING = 25 # These are for use more complex reward-shape problems. [Def
 MIN_REWARD = -1 # These are for use in more complex reward-shape problems. [Default: -1]
 MAX_REWARD = 1 # These are for use in more complex reward-shape problems. [Default: +1]
 
-REWARD_AFFECT_PAST_N = 2 # Affect how many previous reward states, each with diminishing effects. [Default: 4]
+REWARD_AFFECT_PAST_N = 4 # Affect how many previous reward states, each with diminishing effects. [Default: 4]
 REWARD_AFFECT_THRESH = [-0.8, 2] # At what thresholds does the reward propogate to the previous samples? [Default: [-0.8, 2]]
 
 MEMORY_REWARD_THRESH = 0.04 # Assume  anything with less abs(reward) isn't useful to learn, and exclude it from memory [Default: 0.04]
@@ -68,67 +71,117 @@ EPS_DECAY = 0.0001 # How much epsilon decays each time a random action is chosen
 MIN_EPS = 0.01 # Minimum epsilon/random action chance. Keep this above 0 to encourage continued learning. [Default: 0.01]
 
 plt.ion()
-fig, axs = plt.subplots(2, 2)
+fig, axs = plt.subplots(2, 2) # Generate original figure for matplotlib
 
 class Multiplot():
     """
-    TODO Plots multiple plots in a figure using names and pushing points
+    Plots multiple plots in a figure using names.
+
+    Attributes:
+        plots (dict[str,list]): Stores y-points for plots by name.
+        names (list[str]): The list of line names, including row-breaks/column-breaks with "rb" and "cb".
     """
     def __init__(self, names):
+        """
+        The constructor for the Multiplot class.
+
+        Parameters:
+            names (list[str]): The list of line names, including row-breaks/column-breaks with "rb" and "cb".
+        """
         self.plots = {} 
         self.names = names
+
+        # Initialize empty array for each named line, excluding rb and cb flags
         for n in names:
-            self.plots[n] = []
+            if n != "rb" and n!= "cb": self.plots[n] = []
 
     def add_entry(self, name, entry):
+        """
+        Appends a y-value to a named line of the Multiplot.
+
+        Parameters:
+            name (str): A name from the list this Multiplot was initalized with.
+            entry (float | list[float] | ndarray): The y-value of the point (float) or points (1-d array of floats).
+        """
+
         self.plots[name] = np.append(self.plots.get(name), entry)
     
-    def plot_all(self, rows, columns):
+    def plot_all(self):
+        """
+        Plots all of the mulitplot lines.
+        """
         global fig, axs
         ax_idx = [0, 0]
 
-        axs[0, 0].clear() # clear the top left box, since it will not be preceded by an row break (rb) or column break (cb).
+        # Clear the top left box, since it will not be preceded by an row break (rb) or column break (cb)
+        curr_ax = axs[0, 0]
+        curr_ax.clear()
+
+        # Loop through the names
         for name in self.names:
-            if name == "rb": 
+            # Row break
+            if name == "rb":
                 ax_idx[0] += 1
-            
+
+            # Column break
             if name == "cb":
                 ax_idx[1] += 1
                 ax_idx[0] = 0
 
+            # After changing curr_ax position, clear it.
             if name == "cb" or name == "rb":
                 curr_ax = axs[ax_idx[0], ax_idx[1]]
                 curr_ax.clear()
                 continue
             
+            # If the named line has any points, plot them w/ legend
             if len(self.plots[name]) > 0:
-                curr_ax = axs[ax_idx[0], ax_idx[1]]
                 curr_ax.plot(np.array(self.plots.get(name)), label=name)
                 curr_ax.legend()
-
+        
+        # Redraw the figure
         fig.canvas.draw()
         fig.canvas.flush_events()
-        plt.xlabel('Frames')
         plt.tight_layout()
 
 class TimeTracker():
     """
-    TODO Tracks Time
+    Tracks Time
+
+    Attributes:
+        title (str): The title of the time tracker.
+        start_time (int): The starting time of the counter, in nanoseconds since the Epoch.
+        end_time (int): The ending time of the counter, in nanoseconds since the Epoch.
     """
     def __init__(self, title):
+        """
+        The constructor for the TimeTracker class.
+
+        Parameters:
+            title (str): The title of the time tracker.
+        """
         self.title = title
         self.start_time = time.time_ns()
         self.end_time = time.time_ns()
 
     def start(self):
+        """
+        Sets the start time of the time tracker.
+        """
         self.start_time = time.time_ns()
         return self.start_time
     
     def end(self):
+        """
+        Sets the end time of the time tracker.
+        """
         self.end_time = time.time_ns()
         return self.end_time
     
     def print_log(self):
+        """
+        Sets the end of the timer, and then prints the difference between start_time and end_time (the total time elapsed).
+        """
         self.end()
         delta = (self.end_time - self.start_time)
 
@@ -175,6 +228,13 @@ class CustomDQN(torch.nn.Module):
 
         Parameters:
             x (torch.tensor): The input state tensor for the model.
+            real_actions (torch.tensor): A batch of real actions the model took, only used in training.
+            training (boolean): Enable training-specific changes. i.e. Disables greedy-epsilon.
+        
+        Returns:
+            tuple (a, b):
+                - a (torch.tensor): The output action Q-values.
+                - b (torch.tensor): The predicted next state.
         """
 
         x = F.leaky_relu(self.lin_1(x)) # Take state as input and run through 1 linear layer
@@ -187,7 +247,10 @@ class CustomDQN(torch.nn.Module):
             a = torch.rand_like(a) * 2 - 1
         
         chosen_actions = torch.argmax(a, dim=1)
-        if training:
+
+        # During training, the action is not taken.
+        # Fortunately, an action was already taken in that state and saved. Those saved actions can be used here.
+        if real_actions != None:
             chosen_actions = real_actions
 
         # Second head predicts next state from state + Q-values
@@ -305,22 +368,28 @@ def affect_short_mem(reward):
     """
     Alter the n=`REWARD_AFFECT_PAST_N` most recent `short_memory` reward values before they're passed into the MemoryStack.
 
-    Args:
-        reward (float): This value is compared against `MEMORY_REWARD_THRESH` and if its absolute value is higher,
-        then apply the reward to the previous `REWARD_AFFECT_PAST_N` states. The effect is diminished for less recent samples.
+    Parameters:
+        reward (float): This value is compared against `MEMORY_REWARD_THRESH` and if its absolute value is higher, then apply the reward to the previous `REWARD_AFFECT_PAST_N` states. The effect is diminished for less recent samples.
     """
     global short_memory
 
+    # If short_memory is long enough:
     if len(short_memory) > REWARD_AFFECT_PAST_N:
+
+        # Remove the first element
         short_mem = Transition(*short_memory.pop(0))
 
+        # Log it as real reward
         multiplot.add_entry('real_reward', short_mem.reward.cpu().detach().numpy())
         
+        # Put it into actor_mem (which is used for training), if the absolute value of the reward is high enough
         if abs(short_mem.reward) > MEMORY_REWARD_THRESH:
             actor_mem.push(short_mem)
 
-    for i in range(0, len(short_memory)):
-        if reward < REWARD_AFFECT_THRESH[0] or reward > REWARD_AFFECT_THRESH[1]: # temp removed ABS to see if that helps with learning?
+    # Only apply if the current reward exceeds a threshold. 
+    # Affect short_memory reward values based on reward recieved currently, diminishing for less recent events.
+    if reward < REWARD_AFFECT_THRESH[0] or reward > REWARD_AFFECT_THRESH[1]:
+        for i in range(0, len(short_memory)):
             short_memory[-i][3] += reward / (i + 1)
 
 
@@ -329,13 +398,13 @@ obs_stack = deque(maxlen=INPUT_N_STATES)
 
 next_obs, info = env.reset()
 next_obs = torch.tensor(next_obs).to(device)
-cumulative_reward = 0
 
 while len(obs_stack) < INPUT_N_STATES:
     obs_stack.append(next_obs)
 
 next_state_tensor = torch.cat([*obs_stack], dim=0).to(device)
 
+cumulative_reward = 0
 def model_infer():
     """
     1. Observe environment
@@ -356,19 +425,22 @@ def model_infer():
         with torch.no_grad():
             out, _ = actor_model.forward(state_tensor)
 
-            multiplot.add_entry('output_0', [float(out.clone()[0].tolist()[0])])
-            multiplot.add_entry('output_1', [float(out.clone()[0].tolist()[1])])
+            multiplot.add_entry('output_0', float(out.clone()[0].tolist()[0]))
+            multiplot.add_entry('output_1', float(out.clone()[0].tolist()[1]))
 
         Q, max_a = torch.max(out, dim=1)
 
         next_obs, reward, terminated, truncated, info = env.step(max_a.cpu().numpy()[0])
 
+        cumulative_reward += reward
+        multiplot.add_entry('cumulative_reward', cumulative_reward)
+
         if terminated or truncated:
             next_obs, info = env.reset()
-            done = True
+            done = True # end episode
 
-            reward = -10
-            cumulative_reward = -reward
+            reward = -10 # punishment for losing
+            cumulative_reward = 0 # reset cumulative reward
 
         next_obs = torch.tensor(next_obs).to(device)
         reward = torch.tensor(np.expand_dims(reward, 0), dtype=torch.float32).to(device)
@@ -378,10 +450,6 @@ def model_infer():
         next_state_tensor = torch.cat([*obs_stack], dim=0).to(device)
         
         mem_block = [state_tensor, max_a, next_state_tensor.unsqueeze(0), reward]
-
-        cumulative_reward += reward
-
-        multiplot.add_entry('cumulative_reward', cumulative_reward.cpu().numpy())
 
         short_memory.append(mem_block)
 
@@ -414,38 +482,54 @@ def model_train(batch_size):
     """
     This function trains the model using Double-DQN, where the actor_model predicts the next action and then the predictor
     predicts the Q-value of that action for stability reasons.
+
+    Parameters:
+        batch_size (int): The amount of samples to include in a minibatch of training.
+    
+    Returns:
+        actor_loss (torch.tensor): Returns the loss of the actor, essentially its error from the target outputs.
     """
-    actor_model.eval()
+    actor_model.train()
 
     transitions = actor_mem.sample(batch_size)
     mem_batch = Transition(*zip(*transitions))
 
+    # Concatenate mem_batch elements to tensors batches
     state_batch = torch.cat(mem_batch.state, dim=0).to(device)
     action_batch = torch.cat(mem_batch.action, dim=0).to(device)
     next_state_batch = torch.cat(mem_batch.next_state, dim=0).to(device)
     reward_batch = torch.cat(mem_batch.reward, dim=0).to(device) # 64
 
-    state_values, next_state_guess = actor_model.forward(state_batch, action_batch, training=True)
+    # Get the new model output for each state in the batch, including a guess at the next state
+    state_values, next_state_guess = actor_model.forward(state_batch, real_actions=action_batch, training=True)
+    
+    # Gather the Q-value of the actual actions chosen.
     state_actions = state_values.gather(1, action_batch.unsqueeze(1)) # 64, 1
 
     with torch.no_grad():
-        actor_next_preds, _ = actor_model.forward(next_state_batch) # 64, 2
+        # Select next action using current model
+        actor_next_preds, _ = actor_model.forward(next_state_batch, training=True) # 64, 2
         Q, actor_pred_max_a = torch.max(actor_next_preds, dim=1) # 64
-
-        pred_out, _ = pred_model.forward(next_state_batch)
+        
+        # Predict target Q-value at next_state using the more stable prediction model
+        pred_out, _ = pred_model.forward(next_state_batch, training=True) # 64, 2
         next_state_actions = pred_out.gather(1, actor_pred_max_a.unsqueeze(1)) # 64, 1
 
+    # Generate the target output, by adding the reward at each transition, to the Q-value of the next action (predicted reward) * GAMMA, a discount factor.
     target_output = reward_batch.unsqueeze(1) + (next_state_actions * GAMMA)
 
+    # Loss is the difference between the target outputs and the real outputs,
+    # plus the difference between the next state and the predicted next state.
     actor_criterion = nn.MSELoss()
-    actor_loss = actor_criterion(state_actions, target_output)
-    actor_loss += actor_criterion(next_state_guess, next_state_batch)
+    actor_loss = actor_criterion(state_actions, target_output) + actor_criterion(next_state_guess, next_state_batch)
     actor_optimizer.zero_grad()
     actor_loss.backward()
 
+    # Log gradient norm
     grad_norm = np.sqrt(sum([torch.norm(p.grad)**2 for p in actor_model.parameters()]).detach().cpu())
     multiplot.add_entry('grad_norm', grad_norm)
 
+    # Clip gradients for stability
     torch.nn.utils.clip_grad_value_(actor_model.parameters(), 1)
     actor_optimizer.step()
 
@@ -457,27 +541,33 @@ def main():
     global step, env, next_obs, obs_stack, next_state_tensor
 
     for epoch in tqdm(range(EPOCHS)):
+        # Decide whether to display the environment
         if epoch % SNAPSHOT_INTERVAL == 0 and (epoch != 0 or SHOW_FIRST):
             render_mode = "human"
         else:
             render_mode = None
-        env = gym.make('CartPole-v1', render_mode=render_mode)
-        obs_stack = deque(maxlen=INPUT_N_STATES)
 
+        # Load a new version of the environment with the chosen render_mode
+        env = gym.make('CartPole-v1', render_mode=render_mode)
         next_obs, info = env.reset()
+
+        if render_mode != None: env.render()
+
+        # Re-initialize obervations, etc.
+        obs_stack = deque(maxlen=INPUT_N_STATES)
         next_obs = torch.tensor(next_obs).to(device)
 
         while len(obs_stack) < INPUT_N_STATES:
             obs_stack.append(next_obs)
 
         next_state_tensor = torch.cat([*obs_stack], dim=0).to(device)
-        env.render()
+
         if len(info) > 0: print(info)
 
         for episode in tqdm(range(EPISODES_PER_EPOCH)):
             model_infer()
 
-        multiplot.plot_all(2, 2)
+        multiplot.plot_all()
 
 
 main()
