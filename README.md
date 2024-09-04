@@ -10,31 +10,38 @@ This coincides with the hard-update to the target model. Further testing is requ
 
 ## Architecture
 ![Architecture](images/model_architecture.png)
+
 The concatenated 4 previous states are combined for a total of 16 values as the input. The model branches after the first fully-connected (FC) layer. One head predicts the Q-values, and the other head predicts the next state given the current action.
 
 These are modified automatically using the variables `env.observation_space` and `env.action_space`, conveniently provided by gymnasium.
 
 ## Inference
 ![Inference Graph](images/inference_graph.png)
+
 The state, action, next state, and reward are saved into a transition, to be used in training.
 
 ## Training
 ![Training Graph](images/training_graph.png)
+
 Given a previous transition, containing state, action, next state, and reward. The model is a Double-DQN where the policy network predicts the next action, and the target net, which is essentially an infrequently-copied copy of the policy network. The target net predicts the Q-value of the predicted action for training stability.
 
 ## Graphs
 ### Cartpole
 ![Cartpole Graphs](images/cartpole_graphs.png)
+
 Cartpole appears to be technically solved starting from around 5,000 frames, and completely solved from around 10,000 frames. Strangely, coinciding with the first hard-copy to the target net at 10,000 frames. (Approximately 1-2 minutes in real time)
 
 ### Lunar Lander
 ![Lunar Lander Graphs](images/lunar_lander_graphs.png)
+
 Lunar Lander appears to be consistently solved in around 90,000 frames. However, it reaches a solved score above 200 in only 40,000 frames. (Approximately 7 or 14 minutes in real time)
 
 ![Lunar Surprisal Graphs](images/lunar_surprisal_graphs.png)
+
 Later, I added surprisal, and the problem could be solved in just over 11,000 steps. Surprisal uses the error of the next-state prediction sub-goal to adjust the reward. A higher difference represents a "surprise" that the model didn't expect, or hasn't encountered before. This promotes exploring states the model hasn't seen before, and is better than greedy epsilon alone. This model uses a static 5% random action chance (epsilon=0.05)
 
 ![Lunar Landing](images/lunar_landing.gif)
+
 This is an example of some landings at around 30,000 steps. The model is not consistent at this point, possibly attributed to the 1/20 random actions, but it does solve the environment quite frequently. And surprisal allowed it to try out turning off the engines very early on in the training process.
 
 You can see the lander gets stuck hovering occasionally, I believe this is due to the surprisal being over-weighted, however, eventually this behavior would disappear as the next-state predictor improves.
