@@ -7,7 +7,6 @@ import time
 from torchvision.utils import make_grid
 import numpy as np
 import matplotlib.pyplot as plt
-import wandb
 import cv2
 import torch.nn.functional as F
 import time
@@ -133,21 +132,6 @@ class TimeTracker():
 # torch.autograd.set_detect_anomaly(True)
 torch.set_printoptions(2, sci_mode=False)
 
-wandb.init(
-    # set the wandb project where this run will be logged
-    project="cartpole test",
-
-    # track hyperparameters and run metadata
-    config={
-        "TAU": TAU,
-        "ACTOR_LR": ACTOR_LR,
-        "GAMMA": GAMMA,
-        "S_COPY_INTERVAL": SOFT_COPY_INTERVAL,
-        "H_COPY_INTERVAL": HARD_COPY_INTERVAL,
-        "ACTIVATION": "leaky_relu"
-    }
-)
-
 multiplot = Multiplot(names=("a_loss", "rb", "real_reward", "cumulative_reward", "cb", "grad_norm", "rb", "output_0", "output_1"))
 
 class CustomDQN(torch.nn.Module):
@@ -263,30 +247,6 @@ class MemoryStack(object):
 
 actor_mem = MemoryStack(1000000)
 
-def visTensor(tensor, ch=0, allkernels=False, nrow=8, padding=1, scaling=1, display_img=False, wandb_log=False, title="untitled"):
-        """
-        Visualize a tensor, from StackOverflow.
-        """
-        n,c,w,h = tensor.shape
-
-        if allkernels: tensor = tensor.view(n*c, -1, w, h)
-        elif c != 3: tensor = tensor[:,ch,:,:].unsqueeze(dim=1)
-
-        rows = np.min((tensor.shape[0] // nrow + 1, 64))
-        grid = make_grid(tensor, nrow=nrow, normalize=True, padding=padding)
-
-        g_c, g_h, g_w = grid.shape
-        grid_img = grid.cpu().numpy().transpose((1, 2, 0))
-
-        if display_img:
-            cv2.imshow( "Preview", cv2.resize( grid_img, (g_w * scaling, g_h * scaling), interpolation=cv2.INTER_AREA ) )
-            cv2.waitKey(1)
-
-        if wandb_log:
-            image = wandb.Image(grid_img)
-            wandb.log({title: image}, step=step)
-
-
 def greedy_epsilon():
     """
     Decide if the action will be random or not.
@@ -304,8 +264,6 @@ def greedy_epsilon():
 
     rand_action_roll = 0
     rand_action_odds = eps  # Decaying epsilon
-    
-    wandb.log({"rand_action_odds": rand_action_odds}, step=step)
 
     rand_action_roll = random.uniform(0, 1)
 
@@ -328,7 +286,6 @@ def try_learning():
     if len(actor_mem.memory) > BATCH_SIZE:
         if step % TRAIN_INTERVAL == 0:
             a_loss = model_train(BATCH_SIZE)
-            wandb.log({"actor_loss": a_loss}, step=step)
             multiplot.add_entry('a_loss', a_loss.cpu().detach().numpy())
 
 
@@ -351,7 +308,6 @@ def affect_short_mem(reward):
     if len(short_memory) > REWARD_AFFECT_PAST_N:
         short_mem = Transition(*short_memory.pop(0))
 
-        wandb.log({"real_reward": short_mem.reward}, step=step)
         multiplot.add_entry('real_reward', short_mem.reward.cpu().detach().numpy())
         
         if abs(short_mem.reward) > MEMORY_REWARD_THRESH:
@@ -397,16 +353,12 @@ def model_infer():
             multiplot.add_entry('output_0', [float(out.clone()[0].tolist()[0])])
             multiplot.add_entry('output_1', [float(out.clone()[0].tolist()[1])])
 
-        for i in range(2):
-            wandb.log({f"output_{i}": float(out.clone()[0].tolist()[i])}, step=step)
-
         Q, max_a = torch.max(out, dim=1)
 
         next_obs, reward, terminated, truncated, info = env.step(max_a.cpu().numpy()[0])
 
         if terminated or truncated:
             next_obs, info = env.reset()
-            wandb.log({"cumulative_reward": cumulative_reward}, step=step)
             done = True
 
             reward = -10
@@ -430,7 +382,6 @@ def model_infer():
         try_learning()
 
         update_pred_model()
-        wandb.log({"stored_events": len(actor_mem.memory)}, step=step)
         step += 1
 
 
@@ -487,7 +438,6 @@ def model_train(batch_size):
     actor_loss.backward()
 
     grad_norm = np.sqrt(sum([torch.norm(p.grad)**2 for p in actor_model.parameters()]).detach().cpu())
-    wandb.log({"grad_norm": grad_norm}, step=step)
     multiplot.add_entry('grad_norm', grad_norm)
 
     torch.nn.utils.clip_grad_value_(actor_model.parameters(), 1)
