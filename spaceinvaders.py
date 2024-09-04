@@ -252,6 +252,16 @@ torch.set_printoptions(2, sci_mode=False)
 
 multiplot = Multiplot(names=("a_loss", "rb", "real_reward", "cumulative_reward", "natural_reward", "cb", "surprisal", "grad_norm", "rb", "output_0", "output_1", "output_2", "output_3"))
 
+class Encoder(torch.nn.Module):
+    def __init__(self):
+        super(Encoder, self).__init__()
+    # TODO
+
+class Decoder(torch.nn.Module):
+    def __init__(self):
+        super(Decoder, self).__init__()
+    # TODO
+
 class CustomDQN(torch.nn.Module):
     """
     This class creates a pytorch DQN with a predetermined structure.
@@ -641,7 +651,7 @@ def main():
             render_mode = None
 
         # Load a new version of the environment with the chosen render_mode
-        env = gym.make('LunarLander-v2', render_mode=render_mode)
+        env = gym.make(environment_name, render_mode=render_mode)
         next_obs, info = env.reset()
 
         if render_mode != None: env.render()
