@@ -14,6 +14,7 @@ This coincides with the hard-update to the target model. Further testing is requ
 
 ## Setup
 
+Download the code, install the dependencies, and run:
 ```python
 python main.py
 ```
