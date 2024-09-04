@@ -27,6 +27,9 @@ torch.manual_seed(123)
 
 print(f"device: {device}")
 
+model_to_load = "models/actor_model_23500.pth"
+step = 23500
+
 BATCH_SIZE = 64 # The number of transitions per mini-batch [Default: 64]
 INPUT_N_STATES = 4 # The number of consecutive states to be concatenated for the observation/input. [Default: 4]
 
@@ -36,7 +39,9 @@ SAVE_INTERVAL = 500 # The number of frames between saving the model to a file. [
 EPOCHS = 500 # This determines the maximum length the program will run for, in epochs. [Default: 500]
 EPISODES_PER_EPOCH = 10 # This determines how many episodes, playing until termination, there are in each epoch. [Default: 10]
 
-SNAPSHOT_INTERVAL = 25 # The number of epochs between showing the human visualization. [Default: 25]
+SNAPSHOT_INTERVAL = 1 # The number of epochs between showing the human visualization. [Default: 25]
+SHOW_FIRST = True # Regardless of snapshot interval, epoch 0 won't show a visualization, unless this is TRUE. [Default: False]
+
 SOFT_COPY_INTERVAL = 1 # Number of steps before doing a soft-copy. pred_model.params += actor_model.params * TAU. [Default: 1]
 HARD_COPY_INTERVAL = 10000 # Number of steps before doing a hard-copy. pred_model = actor_model. [Default: 10000]
 
@@ -54,8 +59,8 @@ REWARD_AFFECT_THRESH = [-0.8, 2] # At what thresholds does the reward propogate 
 
 MEMORY_REWARD_THRESH = 0.04 # Assume  anything with less abs(reward) isn't useful to learn, and exclude it from memory [Default: 0.04]
 
-DISABLE_RANDOM = False # Disable epsilon_greedy exploration function. [Default: False]
-SAVING_ENABLED = True # Enable saving of model files. [Default: True]
+DISABLE_RANDOM = True # Disable epsilon_greedy exploration function. [Default: False]
+SAVING_ENABLED = False # Enable saving of model files. [Default: True]
 LEARNING_ENABLED = True # Enable model training. [Default: True]
 
 eps = 0.5 # Starting epsilon value, used in the epsilon_greedy policy. [Default: 0.5]
@@ -193,7 +198,8 @@ class CustomDQN(torch.nn.Module):
         return a, b
 
 actor_model = CustomDQN(isPred=False)
-#actor_model = torch.load("models_2/actor_model_218000.pth")
+if model_to_load != "":
+    actor_model = torch.load(model_to_load)
 
 pred_model = CustomDQN(isPred=True)
 pred_model.load_state_dict(actor_model.state_dict())
@@ -447,12 +453,11 @@ def model_train(batch_size):
 
 
 
-step = 0
 def main():
     global step, env, next_obs, obs_stack, next_state_tensor
 
     for epoch in tqdm(range(EPOCHS)):
-        if epoch % SNAPSHOT_INTERVAL == 0 and epoch != 0:
+        if epoch % SNAPSHOT_INTERVAL == 0 and (epoch != 0 or SHOW_FIRST):
             render_mode = "human"
         else:
             render_mode = None
