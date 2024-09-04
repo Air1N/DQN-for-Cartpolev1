@@ -13,7 +13,7 @@ import time
 import gymnasium as gym
 from tqdm import tqdm
 
-env = gym.make('CartPole-v1', render_mode='human')
+env = gym.make('LunarLander-v2', render_mode='human')
 
 # Choose device automatically
 device = torch.device(
@@ -199,9 +199,13 @@ class CustomDQN(torch.nn.Module):
     Attributes:
         isPred (boolean): Whether the model is the prediction model or not.
 
-        self.lin_1 (nn.Linear)
-        self.lin_2 (nn.Linear)
-        self.lin_o (nn.Linear)
+        self.lin_1 (nn.Linear): Shared input layer.
+
+        self.lin_2a (nn.Linear): Hidden layer for Q-value prediction.
+        self.lin_oA (nn.Linear): Output layer for Q-value prediction.
+
+        self.lin_2b (nn.Linear): Hidden layer for next state prediction.
+        self.lin_oB (nn.Linear): Output layer for next state prediction.
     """
     def __init__(self, isPred):
         """
@@ -563,7 +567,7 @@ def main():
             render_mode = None
 
         # Load a new version of the environment with the chosen render_mode
-        env = gym.make('CartPole-v1', render_mode=render_mode)
+        env = gym.make('LunarLander-v2', render_mode=render_mode)
         next_obs, info = env.reset()
 
         if render_mode != None: env.render()
