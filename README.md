@@ -34,7 +34,7 @@ Lunar Lander appears to be consistently solved in around 90,000 frames. However,
 ![Lunar Surprisal Graphs](images/lunar_surprisal_graphs.png)
 Later, I added surprisal, and the problem could be solved in just over 11,000 steps. Surprisal uses the error of the next-state prediction sub-goal to adjust the reward. A higher difference represents a "surprise" that the model didn't expect, or hasn't encountered before. This promotes exploring states the model hasn't seen before, and is better than greedy epsilon alone. This model uses a static 5% random action chance (epsilon=0.05)
 
-![Lunar Landing](images/lunar_landing.mp4)
+![Lunar Landing](images/lunar_landing.gif)
 This is an example of some landings at around 30,000 steps. The model is not consistent at this point, possibly attributed to the 1/20 random actions, but it does solve the environment quite frequently. And surprisal allowed it to try out turning off the engines very early on in the training process.
 
 You can see the lander gets stuck hovering occasionally, I believe this is due to the surprisal being over-weighted, however, eventually this behavior would disappear as the next-state predictor improves.
