@@ -78,6 +78,7 @@ MIN_EPS = 0.01 # Minimum epsilon/random action chance. Keep this above 0 to enco
 PLOT_DETAIL = 10000 # The maximum number of points to display at once, afterward this amount of points will be uniformly pulled from the set of all points.
 MEDIAN_SMOOTHING = 0 # The amount to divide by for median smooth. In this case, 0 = off. 1 should also = off.
 
+# Surprisal is calculated by taking the sqrt(sum(abs(next_state - predicted_next_state)))
 SURPRISAL_WEIGHT = 0.004 # The amount that surprisal influences the reward function. [Default: 0.01]
 
 plt.ion()
@@ -584,7 +585,7 @@ def model_train(batch_size):
     surprisal = torch.sqrt(torch.sum(abs_pred_diff, 1))
     reward_batch += surprisal * SURPRISAL_WEIGHT
 
-    multiplot.add_entry("surprisal", torch.sum(surprisal / SURPRISAL_WEIGHT).cpu().detach().numpy())
+    multiplot.add_entry("surprisal", torch.sum(surprisal).cpu().detach().numpy())
     
     # Gather the Q-value of the actual actions chosen.
     state_actions = state_values.gather(1, action_batch.unsqueeze(1)) # 64, 1

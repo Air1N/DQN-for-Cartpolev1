@@ -53,7 +53,7 @@ SHOW_FIRST = True # Regardless of snapshot interval, epoch 0 won't show a visual
 SOFT_COPY_INTERVAL = 1 # Number of steps before doing a soft-copy. pred_model.params += actor_model.params * TAU. [Default: 1]
 HARD_COPY_INTERVAL = 10000 # Number of steps before doing a hard-copy. pred_model = actor_model. [Default: 10000]
 
-GAMMA = 0.99 # Affects how much the model takes into account future Q-values in the current state. target_output = reward + GAMMA * pred_model(next_state)[actor_model(next_state).argmax()] -- Standard DDQN implementation
+GAMMA = 0.9 # Affects how much the model takes into account future Q-values in the current state. target_output = reward + GAMMA * pred_model(next_state)[actor_model(next_state).argmax()] -- Standard DDQN implementation
 TAU = 0.0001 # Affects the speed of parameter transfer during soft-copy. pred_model.params += actor_model.params * TAU. High numbers result in instability. [Default: 0.0001]
 
 ACTOR_LR = 0.000015 # Learning rate used in the optimizer. [Default: 0.00015]
@@ -63,7 +63,7 @@ MIN_REWARD = -1 # These are for use in more complex reward-shape problems. [Defa
 MAX_REWARD = 1 # These are for use in more complex reward-shape problems. [Default: +1]
 
 REWARD_AFFECT_PAST_N = 10 # Affect how many previous reward states, each with diminishing effects. [Default: 4]
-REWARD_AFFECT_THRESH = [-0.8, 2] # At what thresholds does the reward propogate to the previous samples? [Default: [-0.8, 2]]
+REWARD_AFFECT_THRESH = [-5, 5] # At what thresholds does the reward propogate to the previous samples? [Default: [-0.8, 2]]
 
 MEMORY_REWARD_THRESH = 0.00 # Assume  anything with less abs(reward) isn't useful to learn, and exclude it from memory [Default: 0.04]
 
@@ -78,7 +78,8 @@ MIN_EPS = 0.01 # Minimum epsilon/random action chance. Keep this above 0 to enco
 PLOT_DETAIL = 10000 # The maximum number of points to display at once, afterward this amount of points will be uniformly pulled from the set of all points.
 MEDIAN_SMOOTHING = 0 # The amount to divide by for median smooth. In this case, 0 = off. 1 should also = off.
 
-SURPRISAL_WEIGHT = 0.02 # The amount that surprisal influences the reward function. [Default: 0.01]
+# Surprisal is calculated by taking the sqrt(sum(abs(next_state - predicted_next_state)))
+SURPRISAL_WEIGHT = 0.004 # The amount that surprisal influences the reward function. [Default: 0.01]
 
 plt.ion()
 fig, axs = plt.subplots(2, 2) # Generate original figure for matplotlib
@@ -584,7 +585,7 @@ def model_train(batch_size):
     surprisal = torch.sqrt(torch.sum(abs_pred_diff, 1))
     reward_batch += surprisal * SURPRISAL_WEIGHT
 
-    multiplot.add_entry("surprisal", torch.sum(surprisal / SURPRISAL_WEIGHT).cpu().detach().numpy())
+    multiplot.add_entry("surprisal", torch.sum(surprisal).cpu().detach().numpy())
     
     # Gather the Q-value of the actual actions chosen.
     state_actions = state_values.gather(1, action_batch.unsqueeze(1)) # 64, 1
