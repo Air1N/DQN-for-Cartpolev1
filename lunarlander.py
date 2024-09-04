@@ -80,7 +80,7 @@ MEDIAN_SMOOTHING = 0 # The amount to divide by for median smooth. In this case, 
 
 # Surprisal is calculated by taking the sum(abs(next_state_batch - next_state_guess)**exponent)
 SURPRISAL_WEIGHT = 0.004 # The amount that surprisal influences the reward function. [Default: 0.01]
-SURPRISAL_EXPONENT = 2 # The exponent applied to individual differences in next state guess. [Default: 2]
+SURPRISAL_EXPONENT = 2 # The exponent applied to individual differences in next state guess. Essentially, how influential are outliers. [Default: 2]
 
 plt.ion()
 fig, axs = plt.subplots(2, 2) # Generate original figure for matplotlib
@@ -583,8 +583,8 @@ def model_train(batch_size):
     state_values, next_state_guess = actor_model.forward(state_batch, real_actions=action_batch, training=True)
     pred_diff = next_state_batch - next_state_guess
     abs_pred_diff = torch.abs(pred_diff)**SURPRISAL_EXPONENT
-    surprisal = torch.sum(abs_pred_diff, 1)
-    reward_batch += (surprisal - 1) * SURPRISAL_WEIGHT
+    surprisal = torch.sum(abs_pred_diff, 1) - 1
+    reward_batch += surprisal * SURPRISAL_WEIGHT
 
     print(surprisal * SURPRISAL_WEIGHT)
 
