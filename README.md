@@ -31,6 +31,14 @@ Cartpole appears to be technically solved starting from around 5,000 frames, and
 ![Lunar Lander Graphs](images/lunar_lander_graphs.png)
 Lunar Lander appears to be consistently solved in around 90,000 frames. However, it reaches a solved score above 200 in only 40,000 frames. (Approximately 7 or 14 minutes in real time)
 
+![Lunar Surprisal Graphs](images/lunar_surprisal_graphs.png)
+Later, I added surprisal, and the problem could be solved in just over 11,000 steps. Surprisal uses the error of the next-state prediction sub-goal to adjust the reward. A higher difference represents a "surprise" that the model didn't expect, or hasn't encountered before. This promotes exploring states the model hasn't seen before, and is better than greedy epsilon alone. This model uses a static 5% random action chance (epsilon=0.05)
+
+![Lunar Surprisal Graphs](images/lunar_landing.mp4)
+This is an example of some landings at around 30,000 steps. The model is not consistent at this point, possibly attributed to the 1/20 random actions, but it does solve the environment quite frequently. And surprisal allowed it to try out turning off the engines very early on in the training process.
+
+You can see the lander gets stuck hovering occasionally, I believe this is due to the surprisal being over-weighted, however, eventually this behavior would disappear as the next-state predictor improves.
+
 ## Setup
 1. Download the code.
 2. Make sure you have python3.
