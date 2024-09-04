@@ -460,8 +460,9 @@ def model_infer():
             done = True # end episode
 
 
-            if terminated:
-                reward = -10 # punishment for losing
+            # if terminated:
+            #     reward = -10 # punishment for losing
+            # TERMINATED already is punished in lunar lander
 
         affect_short_mem(reward)
         

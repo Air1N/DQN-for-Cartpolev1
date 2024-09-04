@@ -42,7 +42,7 @@ BATCH_SIZE = 64 # The number of transitions per mini-batch [Default: 64]
 INPUT_N_STATES = 4 # The number of consecutive states to be concatenated for the observation/input. [Default: 4]
 
 TRAIN_INTERVAL = 1 # The number of frames between each training step. [Default: 1]
-SAVE_INTERVAL = 500 # The number of frames between saving the model to a file. [Default: 500]
+SAVE_INTERVAL = 5000 # The number of frames between saving the model to a file. [Default: 500]
 
 EPOCHS = 500 # This determines the maximum length the program will run for, in epochs. [Default: 500]
 EPISODES_PER_EPOCH = 10 # This determines how many episodes, playing until termination, there are in each epoch. [Default: 10]
