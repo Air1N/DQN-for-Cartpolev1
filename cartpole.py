@@ -4,16 +4,16 @@ import torch
 import torch.nn as nn
 import numpy as np
 import time
-from torchvision.utils import make_grid
 import numpy as np
 import matplotlib.pyplot as plt
-import cv2
 import torch.nn.functional as F
 import time
 import gymnasium as gym
 from tqdm import tqdm
 
-env = gym.make('CartPole-v1', render_mode='human')
+# Set the environment name. This model is currently tested on CartPole-v1
+environment_name = 'CartPole-v1'
+env = gym.make(environment_name, render_mode='human')
 
 # Choose device automatically
 device = torch.device(
@@ -27,11 +27,16 @@ torch.manual_seed(123)
 
 print(f"device: {device}")
 
-# Path to the model file to load. Alternatively, "" to start with a fresh model.
-model_to_load = "" #"models/actor_model_23500.pth"
+# Model step to load, this is the number at the end of the file name @ 0 no file is loaded. [Default: 0]
+load_step = 0
 
-# This is here because it's appended to the name of the save file, it counts up by 1 each frame. [Default: 0]
-step = 0
+# This is here because it's appended to the name of the save file, it counts up by 1 each frame. [Default: load_step=0]
+step = load_step
+
+# Path to the model file to load. Automatically generated based on step and environment_name values.
+if load_step > 0:
+    model_to_load = f"models/{environment_name}/actor_model_{step}.pth"
+else: model_to_load = ""
 
 BATCH_SIZE = 64 # The number of transitions per mini-batch [Default: 64]
 INPUT_N_STATES = 4 # The number of consecutive states to be concatenated for the observation/input. [Default: 4]
@@ -218,13 +223,13 @@ class CustomDQN(torch.nn.Module):
 
         self.isPred = isPred
 
-        self.lin_1 = nn.Linear(4 * INPUT_N_STATES, 64)
+        self.lin_1 = nn.Linear(env.observation_space.shape[0] * INPUT_N_STATES, 64)
 
         self.lin_2a = nn.Linear(64, 64)
-        self.lin_oA = nn.Linear(64, 2)
+        self.lin_oA = nn.Linear(64, env.action_space.n)
 
         self.lin_2b = nn.Linear(65, 64)
-        self.lin_oB = nn.Linear(64, 4 * INPUT_N_STATES)
+        self.lin_oB = nn.Linear(64, env.observation_space.shape[0] * INPUT_N_STATES)
 
     def forward(self, x, real_actions=None, training=False):
         """
@@ -363,7 +368,7 @@ def try_learning():
 
 
     if step % SAVE_INTERVAL == 0 and SAVING_ENABLED:
-        torch.save(actor_model, f"models/actor_model_{step}.pth")
+        torch.save(actor_model, f"models/{environment_name}/actor_model_{step}.pth")
 
 
 short_memory = []
