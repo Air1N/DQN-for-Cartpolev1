@@ -26,5 +26,6 @@ The model is currently in demonstration mode. If you want to train a new model y
 ## OPTIONAL changes:
 - SNAPSHOT_INTERVAL = 1 --> 25
 - SHOW_FIRST = True --> False
+
 These two changes speed up training by only rendering at certain intervals, and not the first "random" epoch.
 
