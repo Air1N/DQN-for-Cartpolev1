@@ -412,7 +412,7 @@ def model_infer():
         if done: send_short_to_long_mem(len(short_memory))
 
         try_learning()
-        model_adjuster.soft_hard_copy(step, actor_model, pred_model)()
+        model_adjuster.soft_hard_copy(step, actor_model, pred_model)
         step += 1
 
 

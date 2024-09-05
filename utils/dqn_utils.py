@@ -98,7 +98,7 @@ class ModelAdjuster():
         elif step % self.SOFT_COPY_INTERVAL == 0:
             to_dict = copy_to.state_dict()
             from_dict = copy_from.state_dict()
-            for key in copy_from:
+            for key in from_dict:
                 to_dict[key] = from_dict[key]*self.TAU + to_dict[key]*(1-self.TAU)
             copy_to.load_state_dict(to_dict)
         
