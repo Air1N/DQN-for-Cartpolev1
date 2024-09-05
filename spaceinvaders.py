@@ -12,7 +12,7 @@ import gymnasium as gym
 from tqdm import tqdm
 from utils.atari_wrappers import ImageToPyTorch
 from utils.multiplot import Multiplot
-from utils.dqn_utils import GreedyEpsilon
+from utils.dqn_utils import GreedyEpsilon, ModelAdjuster
 
 torch.autograd.set_detect_anomaly(True)
 
@@ -104,6 +104,8 @@ torch.set_printoptions(2, sci_mode=False)
 
 multiplot = Multiplot(names=("a_loss", "c_loss", "rb", "real_reward", "cumulative_reward", "natural_reward", "cb", "surprisal", "grad_norm", "rb", "output_0", "output_1", "output_2", "output_3"))
 greedy_epsilon = GreedyEpsilon(DISABLE_RANDOM, EPS_DECAY, MIN_EPS)
+model_adjuster = ModelAdjuster(TAU, HARD_COPY_INTERVAL, SOFT_COPY_INTERVAL)
+
 class Encoder(torch.nn.Module):
     def __init__(self):
         super(Encoder, self).__init__()
@@ -410,26 +412,8 @@ def model_infer():
         if done: send_short_to_long_mem(len(short_memory))
 
         try_learning()
-        update_pred_model()
+        model_adjuster.soft_hard_copy(step, actor_model, pred_model)()
         step += 1
-
-
-
-def update_pred_model():
-    """
-    Handles hard- and/or soft- updates to the target/prediction network, based on `HARD_COPY_INTERVAL`
-    
-    and `SOFT_COPY_INTERVAL` w/ `TAU`
-    """
-    if step % HARD_COPY_INTERVAL == 0:
-        pred_model.load_state_dict(actor_model.state_dict())
-
-    elif step % SOFT_COPY_INTERVAL == 0:
-        pred_model_sd = pred_model.state_dict()
-        actor_model_sd = actor_model.state_dict()
-        for key in actor_model_sd:
-            pred_model_sd[key] = actor_model_sd[key]*TAU + pred_model_sd[key]*(1-TAU)
-        pred_model.load_state_dict(pred_model_sd)
 
 
 

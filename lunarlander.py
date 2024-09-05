@@ -8,7 +8,8 @@ import torch.nn.functional as F
 import gymnasium as gym
 from tqdm import tqdm
 from utils.multiplot import Multiplot
-from utils.dqn_utils import GreedyEpsilon
+from utils.memory_stack import MemoryStack
+from utils.dqn_utils import GreedyEpsilon, ModelAdjuster
 
 # Set the environment name. This model is currently tested on CartPole-v1
 environment_name = 'LunarLander-v2'
@@ -83,6 +84,7 @@ plt.ion()
 
 multiplot = Multiplot(names=("a_loss", "rb", "real_reward", "cumulative_reward", "natural_reward", "cb", "surprisal", "grad_norm", "rb", "output_0", "output_1", "output_2", "output_3"))
 greedy_epsilon = GreedyEpsilon(DISABLE_RANDOM, EPS_DECAY, MIN_EPS)
+model_adjuster = ModelAdjuster(TAU, HARD_COPY_INTERVAL, SOFT_COPY_INTERVAL)
 
 # torch.autograd.set_detect_anomaly(True)
 torch.set_printoptions(2, sci_mode=False)
@@ -176,44 +178,6 @@ pred_model.to(device)
 
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
-
-class MemoryStack(object):
-    """
-    This class creates a MemoryStack object with size `capacity`,
-    upon reaching capacity the oldest objects will be dropped.
-
-    Attributes:
-        memory (deque([], maxlen=capacity)): The memory deque which stores the saved objects -- typically transition tensors.
-    """
-    def __init__(self, capacity):
-        """
-        The constructor for the MemoryStack class.
-
-        Parameters:
-            capacity (int): The number of objects which will be stored before the oldest objects start being dropped from the deque stack.
-        """
-        self.memory = deque([], maxlen=capacity)
-
-    def push(self, x):
-        """
-        Push an object to the MemoryStack `.memory` deque.
-
-        Parameters:
-            x (any): The element to push to the MemoryStack.
-        """
-        self.memory.append(x)
-    
-    def sample(self, batch_size):
-        """
-        Pull `batch_size` random samples from the MemoryStack `.memory` deque.
-
-        Parameters:
-            batch_size (int): The number of individual samples to pull from the memory.
-        
-        Returns:
-            array: An array containing `batch_size` individual samples from memory.
-        """
-        return random.sample(self.memory, batch_size)
 
 actor_mem = MemoryStack(1000000)
 
@@ -348,26 +312,8 @@ def model_infer():
 
         try_learning()
 
-        update_pred_model()
+        model_adjuster.soft_hard_copy(step, actor_model, pred_model)()
         step += 1
-
-
-
-def update_pred_model():
-    """
-    Handles hard- and/or soft- updates to the target/prediction network, based on `HARD_COPY_INTERVAL`
-    
-    and `SOFT_COPY_INTERVAL` w/ `TAU`
-    """
-    if step % HARD_COPY_INTERVAL == 0:
-        pred_model.load_state_dict(actor_model.state_dict())
-
-    elif step % SOFT_COPY_INTERVAL == 0:
-        pred_model_sd = pred_model.state_dict()
-        actor_model_sd = actor_model.state_dict()
-        for key in actor_model_sd:
-            pred_model_sd[key] = actor_model_sd[key]*TAU + pred_model_sd[key]*(1-TAU)
-        pred_model.load_state_dict(pred_model_sd)
 
 
 

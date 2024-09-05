@@ -2,7 +2,7 @@ import random
 
 class GreedyEpsilon():
     """
-    Create a GreedyEpsilon manager class
+    GreedyEpsilon manager class, used to control epsilon and choose random booleans.
 
     Attributes:
         DISABLE_RANDOM (boolean): Disable random generation when using `.choose()`
@@ -10,6 +10,14 @@ class GreedyEpsilon():
         MIN_EPS (float): The minimum allowed epsilon value. Anything below this will be clamped into the range.
     """
     def __init__(self, disable_random=False, eps_decay=0.0001, min_eps=0.05):
+        """
+        Constructor for the GreedyEpsilon manager class.
+
+        Parameters:
+            disable_random (boolean): Disable random generation when using `.choose()`
+            eps_decay (float): The amount to decay epsilon each time `.choose()` returns true.
+            min_eps (float): The minimum allowed epsilon value. Anything below this will be clamped into the range.
+        """
         self.DISABLE_RANDOM = disable_random
         self.EPS_DECAY = eps_decay
         self.MIN_EPS = min_eps
@@ -45,3 +53,53 @@ class GreedyEpsilon():
         
         else:
             return False, eps
+
+
+class ModelAdjuster():
+    """
+    This ModelAdjuster class handles model adjustments like soft/hard-copying over intervals.
+
+    Attributes:
+        TAU (float): Weight of soft copying, eg. `TAU*from_model + (1-TAU)*to_model`
+        HARD_COPY_INTERVAL (int): Interval number of steps to hard copy after.
+        SOFT_COPY_INTERVAL (int): Interval number of steps to soft copy after.
+    """
+    def __init__(self, tau=0.0001, hard_copy_interval=10000, soft_copy_interval=1):
+        """
+        Constructor for ModelAdjuster which handles model adjustments like soft/hard-copying over intervals.
+
+        Parameters:
+            tau (float): Weight of soft copying, eg. `TAU*from_model + (1-TAU)*to_model`
+            hard_copy_interval (int): Interval number of steps to hard copy after.
+            soft_copy_interval (int): Interval number of steps to soft copy after.
+        """
+        self.TAU = tau
+        self.HARD_COPY_INTERVAL = hard_copy_interval
+        self.SOFT_COPY_INTERVAL = soft_copy_interval
+
+    def soft_hard_copy(self, step, copy_from, copy_to):
+        """
+        Handles hard- and/or soft- updates to the target/prediction network, based on `HARD_COPY_INTERVAL`
+        
+        and `SOFT_COPY_INTERVAL` w/ `TAU`
+
+        Parameters:
+            step (int): The current arbitrary step number to compare with HARD_ or SOFT_ COPY_INVERVAL.
+            copy_from (torch.nn.Module): The model to use for updating copy_from's parameters.
+            copy_to (torch.nn.Module): The model to update parameters for.
+        
+        
+        Returns:
+            copy_to (torch.nn.Module): The updated copy_to model, with adjusted parameters.
+        """
+        if step % self.HARD_COPY_INTERVAL == 0:
+            copy_to.load_state_dict(copy_from.state_dict())
+
+        elif step % self.SOFT_COPY_INTERVAL == 0:
+            to_dict = copy_to.state_dict()
+            from_dict = copy_from.state_dict()
+            for key in copy_from:
+                to_dict[key] = from_dict[key]*self.TAU + to_dict[key]*(1-self.TAU)
+            copy_to.load_state_dict(to_dict)
+        
+        return copy_to
