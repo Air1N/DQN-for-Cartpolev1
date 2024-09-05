@@ -5,7 +5,7 @@ PLOT_DETAIL = 10000 # The maximum number of points to display at once, afterward
 MEDIAN_SMOOTHING = 0 # The amount to divide by for median smooth. In this case, 0 = off. 1 should also = off.
 
 class Multiplot():
-    # TODO Make the graphs more customizable
+    # TODO Make the graphs more customizable, for example count rb and cb to set row and column numbers
     """
     Plots multiple plots in a figure using names.
 

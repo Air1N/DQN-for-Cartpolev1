@@ -42,17 +42,15 @@ class GreedyEpsilon():
         if self.DISABLE_RANDOM:
             return False
 
-        rand_action_roll = 0
-        rand_action_odds = eps  # Decaying epsilon
-
         rand_action_roll = random.uniform(0, 1)
+        epsilon = eps
 
-        if rand_action_roll < rand_action_odds:
-            eps = max(eps * (1 - self.EPS_DECAY), self.MIN_EPS)
-            return True, eps
+        if rand_action_roll < epsilon:
+            epsilon = max(epsilon * (1 - self.EPS_DECAY), self.MIN_EPS)
+            return True, epsilon
         
         else:
-            return False, eps
+            return False, epsilon
 
 
 class ModelAdjuster():

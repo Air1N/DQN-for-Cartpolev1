@@ -53,7 +53,7 @@ SHOW_FIRST = True # Regardless of snapshot interval, epoch 0 won't show a visual
 SOFT_COPY_INTERVAL = 1 # Number of steps before doing a soft-copy. pred_model.params += actor_model.params * TAU. [Default: 1]
 HARD_COPY_INTERVAL = 10000 # Number of steps before doing a hard-copy. pred_model = actor_model. [Default: 10000]
 
-GAMMA = 0.9 # Affects how much the model takes into account future Q-values in the current state. target_output = reward + GAMMA * pred_model(next_state)[actor_model(next_state).argmax()] -- Standard DDQN implementation
+GAMMA = 0.99 # Affects how much the model takes into account future Q-values in the current state. target_output = reward + GAMMA * pred_model(next_state)[actor_model(next_state).argmax()] -- Standard DDQN implementation
 TAU = 0.0001 # Affects the speed of parameter transfer during soft-copy. pred_model.params += actor_model.params * TAU. High numbers result in instability. [Default: 0.0001]
 
 ACTOR_LR = 0.00015 # Learning rate used in the optimizer. [Default: 0.00015]
@@ -76,9 +76,9 @@ EPS_DECAY = 0.001 # How much epsilon decays each time a random action is chosen.
 MIN_EPS = 0.05 # Minimum epsilon/random action chance. Keep this above 0 to encourage continued learning. [Default: 0.01]
 
 # Surprisal is calculated by taking the sum(abs(next_state_batch - next_state_guess)**exponent)
-SURPRISAL_WEIGHT = 0.02 # The amount that surprisal influences the reward function. [Default: 0.01]
-SURPRISAL_EXPONENT = 2 # The exponent applied to individual differences in next state guess. Essentially, how influential are outliers. [Default: 2]
-SURPRISAL_MINUS = 1
+SURPRISAL_EXPONENT = 1 # TODO The exponent applied to individual differences in next state guess. Essentially, how influential are outliers. [Default: 2]
+SURPRISAL_BIAS = 0 # Bias the surprisal score before weighting [Default: -1]
+SURPRISAL_WEIGHT = 0.001 # The amount that surprisal influences the reward function. [Default: 0.01]
 
 plt.ion()
 
@@ -124,6 +124,7 @@ class CustomDQN(torch.nn.Module):
         self.lin_oB = nn.Linear(64, env.observation_space.shape[0] * INPUT_N_STATES)
 
     def forward(self, x, real_actions=None, training=False):
+        global eps
         """
         The feed-forward/step function of the model.
 
@@ -144,7 +145,8 @@ class CustomDQN(torch.nn.Module):
         a = F.leaky_relu(self.lin_2a(x)) 
         a = self.lin_oA(a)
 
-        if not training and greedy_epsilon.choose(eps):
+        explore, eps = greedy_epsilon.choose(eps)
+        if not training and explore:
             a = torch.rand_like(a) * 2 - 1
         
         chosen_actions = torch.argmax(a, dim=1)
@@ -312,7 +314,7 @@ def model_infer():
 
         try_learning()
 
-        model_adjuster.soft_hard_copy(step, actor_model, pred_model)()
+        model_adjuster.soft_hard_copy(step, actor_model, pred_model)
         step += 1
 
 
@@ -342,12 +344,12 @@ def model_train(batch_size):
     # Get the new model output for each state in the batch, including a guess at the next state
     state_values, next_state_guess = actor_model.forward(state_batch, real_actions=action_batch, training=True)
     pred_diff = next_state_batch - next_state_guess
-    abs_pred_diff = (torch.abs(pred_diff) + 1)**SURPRISAL_EXPONENT - 1
-    surprisal = torch.sum(abs_pred_diff, 1)
-    scaled_surprisal = (surprisal - SURPRISAL_MINUS) * SURPRISAL_WEIGHT
-    reward_batch += scaled_surprisal
-
-    multiplot.add_entry("surprisal", torch.sum(scaled_surprisal).cpu().detach().numpy())
+    abs_pred_diff = torch.abs(pred_diff)
+    
+    diff_from_mean_pred_diff = abs_pred_diff - torch.mean(abs_pred_diff)
+    surprisal = torch.sum(diff_from_mean_pred_diff, dim=1)
+    scaled_surprisal = (surprisal + SURPRISAL_BIAS) * SURPRISAL_WEIGHT
+    multiplot.add_entry("surprisal", (torch.max(scaled_surprisal) - torch.min(scaled_surprisal)).cpu().detach().numpy() * 5)
     
     # Gather the Q-value of the actual actions chosen.
     state_actions = state_values.gather(1, action_batch.unsqueeze(1)) # 64, 1
@@ -394,7 +396,6 @@ def main():
             render_mode = None
 
         # Load a new version of the environment with the chosen render_mode
-        env = gym.make(environment_name, render_mode=render_mode)
         next_obs, info = env.reset()
 
         if render_mode != None: env.render()

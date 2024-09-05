@@ -119,6 +119,7 @@ class CustomDQN(torch.nn.Module):
         self.lin_oB = nn.Linear(64, env.observation_space.shape[0] * INPUT_N_STATES)
 
     def forward(self, x, real_actions=None, training=False):
+        global eps
         """
         The feed-forward/step function of the model.
 
@@ -139,7 +140,8 @@ class CustomDQN(torch.nn.Module):
         a = F.leaky_relu(self.lin_2a(x)) 
         a = self.lin_oA(a)
 
-        if not training and greedy_epsilon.choose(eps):
+        explore, eps = greedy_epsilon.choose(eps)
+        if not training and explore:
             a = torch.rand_like(a) * 2 - 1
         
         chosen_actions = torch.argmax(a, dim=1)
@@ -370,8 +372,6 @@ def main():
         else:
             render_mode = None
 
-        # Load a new version of the environment with the chosen render_mode
-        env = gym.make(environment_name, render_mode=render_mode)
         next_obs, info = env.reset()
 
         if render_mode != None: env.render()
