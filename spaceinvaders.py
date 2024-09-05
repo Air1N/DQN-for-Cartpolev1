@@ -10,16 +10,16 @@ import torch.nn.functional as F
 import time
 import gymnasium as gym
 from tqdm import tqdm
+from atari_wrappers import ImageToPyTorch
 
-from ale_py import ALEInterface
-ale = ALEInterface()
-
-from ale_py.roms import SpaceInvaders
-ale.loadROM(SpaceInvaders)
+torch.autograd.set_detect_anomaly(True)
 
 # Set the environment name. This model is currently tested on CartPole-v1
+DISPLAY_MODE = "human"
 environment_name = 'ALE/SpaceInvaders-v5'
-env = gym.make(environment_name, render_mode='human')
+env = gym.make(environment_name, render_mode=DISPLAY_MODE)
+env.metadata['render_fps'] = 150
+env = ImageToPyTorch(env)
 
 # Choose device automatically
 device = torch.device(
@@ -62,23 +62,25 @@ HARD_COPY_INTERVAL = 10000 # Number of steps before doing a hard-copy. pred_mode
 GAMMA = 0.9 # Affects how much the model takes into account future Q-values in the current state. target_output = reward + GAMMA * pred_model(next_state)[actor_model(next_state).argmax()] -- Standard DDQN implementation
 TAU = 0.0001 # Affects the speed of parameter transfer during soft-copy. pred_model.params += actor_model.params * TAU. High numbers result in instability. [Default: 0.0001]
 
-ACTOR_LR = 0.00015 # Learning rate used in the optimizer. [Default: 0.00015]
+ACTOR_LR = 0.00015 # Learning rate used in the policy optimizer. [Default: 0.00015]
+ENCODER_LR = 0.001 # Learning rate used in the encoder optimizer. [Default: 0.001]
+CODER_LR = 0.001 # Learning rate used in the decoder optimizer. [Default: 0.001]
 
 REWARD_SCALING = 25 # These are for use more complex reward-shape problems. [Default: +25]
 MIN_REWARD = -1 # These are for use in more complex reward-shape problems. [Default: -1]
 MAX_REWARD = 1 # These are for use in more complex reward-shape problems. [Default: +1]
 
 REWARD_AFFECT_PAST_N = 10 # Affect how many previous reward states, each with diminishing effects. [Default: 4]
-REWARD_AFFECT_THRESH = [-5, 5] # At what thresholds does the reward propogate to the previous samples? [Default: [-0.8, 2]]
+REWARD_AFFECT_THRESH = [-3, 3] # At what thresholds does the reward propogate to the previous samples? [Default: [-0.8, 2]]
 
-MEMORY_REWARD_THRESH = 0.00 # Assume  anything with less abs(reward) isn't useful to learn, and exclude it from memory [Default: 0.04]
+MEMORY_REWARD_THRESH = 0.04 # Assume  anything with less abs(reward) isn't useful to learn, and exclude it from memory [Default: 0.04]
 
 DISABLE_RANDOM = False # Disable epsilon_greedy exploration function. [Default: False]
 SAVING_ENABLED = True # Enable saving of model files. [Default: True]
 LEARNING_ENABLED = True # Enable model training. [Default: True]
 
-eps = 0.05 # Starting epsilon value, used in the epsilon_greedy policy. [Default: 0.5]
-EPS_DECAY = 0.0001 # How much epsilon decays each time a random action is chosen. [Default: 0.0001]
+eps = 2 # Starting epsilon value, used in the epsilon_greedy policy. [Default: 0.5]
+EPS_DECAY = 0.001 # How much epsilon decays each time a random action is chosen. [Default: 0.0001]
 MIN_EPS = 0.05 # Minimum epsilon/random action chance. Keep this above 0 to encourage continued learning. [Default: 0.01]
 
 PLOT_DETAIL = 10000 # The maximum number of points to display at once, afterward this amount of points will be uniformly pulled from the set of all points.
@@ -86,8 +88,12 @@ MEDIAN_SMOOTHING = 0 # The amount to divide by for median smooth. In this case, 
 
 # Surprisal is calculated by taking the sum(abs(next_state_batch - next_state_guess)**exponent)
 SURPRISAL_WEIGHT = 0.04 # The amount that surprisal influences the reward function. [Default: 0.01]
-SURPRISAL_EXPONENT = 2 # The exponent applied to individual differences in next state guess. Essentially, how influential are outliers. [Default: 2]
-SURPRISAL_MINUS = 5
+SURPRISAL_EXPONENT = 4 # The exponent applied to individual differences in next state guess. Essentially, how influential are outliers. [Default: 2]
+SURPRISAL_MINUS = 1
+
+ENCODER_NODES = 24
+
+last_c_loss = 10
 
 plt.ion()
 fig, axs = plt.subplots(2, 2) # Generate original figure for matplotlib
@@ -250,17 +256,47 @@ class TimeTracker():
 # torch.autograd.set_detect_anomaly(True)
 torch.set_printoptions(2, sci_mode=False)
 
-multiplot = Multiplot(names=("a_loss", "rb", "real_reward", "cumulative_reward", "natural_reward", "cb", "surprisal", "grad_norm", "rb", "output_0", "output_1", "output_2", "output_3"))
+multiplot = Multiplot(names=("a_loss", "c_loss", "rb", "real_reward", "cumulative_reward", "natural_reward", "cb", "surprisal", "grad_norm", "rb", "output_0", "output_1", "output_2", "output_3"))
 
 class Encoder(torch.nn.Module):
     def __init__(self):
         super(Encoder, self).__init__()
-    # TODO
+        self.conv1 = nn.Conv2d(12, 24, kernel_size=5, stride=5)
+        self.conv2 = nn.Conv2d(24, 48, kernel_size=2, stride=2)
+        
+        self.lin1 = nn.Linear(16128, 128)
+        self.linO = nn.Linear(128, ENCODER_NODES)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.conv2(x)
+        x = torch.flatten(x, 1)
+        x = self.lin1(x)
+        x = self.linO(x)
+        return x
+
+encoder_model = Encoder()
+encoder_model.to(device)
 
 class Decoder(torch.nn.Module):
     def __init__(self):
         super(Decoder, self).__init__()
-    # TODO
+        self.linO = nn.Linear(ENCODER_NODES, 128)
+        self.lin1 = nn.Linear(128, 16128)
+        self.deconv2 = nn.ConvTranspose2d(48, 24, kernel_size=2, stride=2)
+        self.deconv1 = nn.ConvTranspose2d(24, 12, kernel_size=5, stride=5)
+
+    def forward(self, x):
+        x = self.linO(x)
+        x = self.lin1(x)
+        x = torch.unflatten(x, 1, (48, 16, 21))
+        x = self.deconv2(x)
+        x = self.deconv1(x)
+        return x
+
+decoder_model = Decoder()
+decoder_model.to(device)
+coder_optimizer = torch.optim.RAdam(list(encoder_model.parameters()) + list(decoder_model.parameters()), lr=CODER_LR)
 
 class CustomDQN(torch.nn.Module):
     """
@@ -288,13 +324,13 @@ class CustomDQN(torch.nn.Module):
 
         self.isPred = isPred
 
-        self.lin_1 = nn.Linear(env.observation_space.shape[0] * INPUT_N_STATES, 64)
+        self.lin_1 = nn.Linear(ENCODER_NODES, 64)
 
         self.lin_2a = nn.Linear(64, 64)
         self.lin_oA = nn.Linear(64, env.action_space.n)
 
         self.lin_2b = nn.Linear(64 + env.action_space.n, 64)
-        self.lin_oB = nn.Linear(64, env.observation_space.shape[0] * INPUT_N_STATES)
+        self.lin_oB = nn.Linear(64, ENCODER_NODES)
 
     def forward(self, x, real_actions=None, training=False):
         """
@@ -424,13 +460,17 @@ def try_learning():
     """
     Perform checks and start `model_train()`.
     """
-    global step
+    global step, last_c_loss
 
     if not LEARNING_ENABLED: return
 
     if len(actor_mem.memory) > BATCH_SIZE:
         if step % TRAIN_INTERVAL == 0:
             a_loss = model_train(BATCH_SIZE)
+            if last_c_loss > 1:
+                c_loss = train_coder(BATCH_SIZE)
+                last_c_loss = c_loss
+            multiplot.add_entry('c_loss', last_c_loss.cpu().detach().numpy())
             multiplot.add_entry('a_loss', a_loss.cpu().detach().numpy())
 
 
@@ -456,7 +496,7 @@ def affect_short_mem(reward):
     # Only apply if the current reward exceeds a threshold. 
     # Affect short_memory reward values based on reward recieved currently, diminishing for less recent events.
     if reward < REWARD_AFFECT_THRESH[0] or reward > REWARD_AFFECT_THRESH[1]:
-        for i in range(0, len(short_memory)):
+        for i in range(1, len(short_memory) + 1):
             short_memory[-i][3] += reward / (i + 1)
 
 def send_short_to_long_mem(n):
@@ -468,13 +508,14 @@ def send_short_to_long_mem(n):
     """
     for i in range(0, n):
         # Remove the first element
-        short_mem = Transition(*short_memory.pop(0))
+        short_mem = short_memory.pop(0)
 
         # Log it as real reward
-        multiplot.add_entry('real_reward', short_mem.reward.cpu().detach().numpy())
+        multiplot.add_entry('real_reward', short_mem[3][0].cpu().detach())
+        print(short_mem[3][0].cpu().detach())
 
         # Put it into actor_mem (which is used for training), if the absolute value of the reward is high enough
-        if abs(short_mem.reward) > MEMORY_REWARD_THRESH:
+        if abs(short_mem[3]) > MEMORY_REWARD_THRESH:
             actor_mem.push(short_mem)
 
 
@@ -504,11 +545,12 @@ def model_infer():
     done = False
     cumulative_reward = 0
     while not done:
-        state_tensor = next_state_tensor.unsqueeze(0)
-
+        state_tensor = next_state_tensor.unsqueeze(0).float()
         actor_model.eval()
+        encoder_model.eval()
         with torch.no_grad():
-            out, _ = actor_model.forward(state_tensor)
+            encoded_state = encoder_model.forward(state_tensor)
+            out, _ = actor_model.forward(encoded_state)
 
             multiplot.add_entry('output_0', float(out.clone()[0].tolist()[0]))
             multiplot.add_entry('output_1', float(out.clone()[0].tolist()[1]))
@@ -518,7 +560,6 @@ def model_infer():
         Q, max_a = torch.max(out, dim=1)
 
         next_obs, reward, terminated, truncated, info = env.step(max_a.cpu().numpy()[0])
-        
         multiplot.add_entry('natural_reward', reward)
 
         cumulative_reward += reward
@@ -539,7 +580,7 @@ def model_infer():
         
         next_obs = torch.tensor(next_obs).to(device)
         obs_stack.append(next_obs)
-        next_state_tensor = torch.cat([*obs_stack], dim=0).to(device)
+        next_state_tensor = torch.cat([*obs_stack], dim=0).float().to(device)
         
         reward = torch.tensor(np.expand_dims(reward, 0), dtype=torch.float32).to(device)
 
@@ -550,7 +591,6 @@ def model_infer():
         if done: send_short_to_long_mem(len(short_memory))
 
         try_learning()
-
         update_pred_model()
         step += 1
 
@@ -572,6 +612,44 @@ def update_pred_model():
             pred_model_sd[key] = actor_model_sd[key]*TAU + pred_model_sd[key]*(1-TAU)
         pred_model.load_state_dict(pred_model_sd)
 
+
+
+def train_coder(batch_size):
+    """
+    This function trains the model using Double-DQN, where the actor_model predicts the next action and then the predictor
+    predicts the Q-value of that action for stability reasons.
+
+    Parameters:
+        batch_size (int): The amount of samples to include in a minibatch of training.
+    
+    Returns:
+        actor_loss (torch.tensor): Returns the loss of the actor, essentially its error from the target outputs.
+    """
+    encoder_model.train()
+    decoder_model.train()
+
+    transitions = actor_mem.sample(batch_size)
+    mem_batch = Transition(*zip(*transitions))
+
+    # Concatenate mem_batch elements to tensors batches
+    state_batch = torch.cat(mem_batch.state, dim=0).to(device)
+    next_state_batch = torch.cat(mem_batch.next_state, dim=0).to(device)
+
+    # Get the new model output for each state in the batch, including a guess at the next state
+    encoded_state = encoder_model.forward(state_batch)
+    encoded_next_state = encoder_model.forward(next_state_batch)
+
+    decoded_state = decoder_model.forward(encoded_state)
+    decoded_next_state = decoder_model.forward(encoded_next_state)
+
+    # Train Encoder/Decoder nets
+    coder_criterion = nn.MSELoss()
+    coder_loss = coder_criterion(decoded_state, state_batch) + coder_criterion(decoded_next_state, next_state_batch)
+    coder_optimizer.zero_grad()
+    coder_loss.backward()
+    coder_optimizer.step()
+
+    return coder_loss
 
 
 def model_train(batch_size):
@@ -597,13 +675,17 @@ def model_train(batch_size):
     reward_batch = torch.cat(mem_batch.reward, dim=0).to(device) # 64
 
     # Get the new model output for each state in the batch, including a guess at the next state
-    state_values, next_state_guess = actor_model.forward(state_batch, real_actions=action_batch, training=True)
-    pred_diff = next_state_batch - next_state_guess
-    abs_pred_diff = torch.abs(pred_diff)**SURPRISAL_EXPONENT
+    encoded_state = encoder_model.forward(state_batch)
+    encoded_next_state = encoder_model.forward(next_state_batch)
+
+    # Train actor / policy net
+    state_values, next_state_guess = actor_model.forward(encoded_state, real_actions=action_batch, training=True)
+
+    pred_diff = encoded_next_state - next_state_guess
+    abs_pred_diff = (torch.abs(pred_diff) + 1)**SURPRISAL_EXPONENT - 1
     surprisal = torch.sum(abs_pred_diff, 1)
     scaled_surprisal = (surprisal - SURPRISAL_MINUS) * SURPRISAL_WEIGHT
     reward_batch += scaled_surprisal
-
     multiplot.add_entry("surprisal", torch.sum(scaled_surprisal).cpu().detach().numpy())
     
     # Gather the Q-value of the actual actions chosen.
@@ -611,11 +693,11 @@ def model_train(batch_size):
 
     with torch.no_grad():
         # Select next action using current model
-        actor_next_preds, _ = actor_model.forward(next_state_batch, training=True) # 64, 2
+        actor_next_preds, _ = actor_model.forward(encoded_next_state, training=True) # 64, 2
         Q, actor_pred_max_a = torch.max(actor_next_preds, dim=1) # 64
         
         # Predict target Q-value at next_state using the more stable prediction model
-        pred_out, _ = pred_model.forward(next_state_batch, training=True) # 64, 2
+        pred_out, _ = pred_model.forward(encoded_next_state, training=True) # 64, 2
         next_state_actions = pred_out.gather(1, actor_pred_max_a.unsqueeze(1)) # 64, 1
 
     # Generate the target output, by adding the reward at each transition, to the Q-value of the next action (predicted reward) * GAMMA, a discount factor.
@@ -624,9 +706,9 @@ def model_train(batch_size):
     # Loss is the difference between the target outputs and the real outputs,
     # plus the difference between the next state and the predicted next state.
     actor_criterion = nn.HuberLoss()
-    actor_loss = actor_criterion(state_actions, target_output) + actor_criterion(next_state_guess, next_state_batch)
+    actor_loss = actor_criterion(state_actions, target_output) + actor_criterion(next_state_guess, encoded_next_state)
     actor_optimizer.zero_grad()
-    actor_loss.backward()
+    actor_loss.backward(retain_graph=True)
 
     # Log gradient norm
     grad_norm = np.sqrt(sum([torch.norm(p.grad)**2 for p in actor_model.parameters()]).detach().cpu())
@@ -646,15 +728,17 @@ def main():
     for epoch in tqdm(range(EPOCHS)):
         # Decide whether to display the environment
         if epoch % SNAPSHOT_INTERVAL == 0 and (epoch != 0 or SHOW_FIRST):
-            render_mode = "human"
+            render_mode = DISPLAY_MODE
         else:
-            render_mode = None
+            pass
+            #render_mode = None
 
         # Load a new version of the environment with the chosen render_mode
-        env = gym.make(environment_name, render_mode=render_mode)
+        #env = gym.make(environment_name, render_mode=render_mode)
+        print(env)
+        env.metadata['render_fps'] = 30
         next_obs, info = env.reset()
-
-        if render_mode != None: env.render()
+        env.render()
 
         # Re-initialize obervations, etc.
         obs_stack = deque(maxlen=INPUT_N_STATES)

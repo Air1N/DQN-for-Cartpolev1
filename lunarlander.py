@@ -440,7 +440,7 @@ def affect_short_mem(reward):
     # Only apply if the current reward exceeds a threshold. 
     # Affect short_memory reward values based on reward recieved currently, diminishing for less recent events.
     if reward < REWARD_AFFECT_THRESH[0] or reward > REWARD_AFFECT_THRESH[1]:
-        for i in range(0, len(short_memory)):
+        for i in range(1, len(short_memory) + 1):
             short_memory[-i][3] += reward / (i + 1)
 
 def send_short_to_long_mem(n):
