@@ -3,13 +3,12 @@ import random
 import torch
 import torch.nn as nn
 import numpy as np
-import time
-import numpy as np
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
-import time
 import gymnasium as gym
 from tqdm import tqdm
+from utils.multiplot import Multiplot
+from utils.dqn_utils import GreedyEpsilon
 
 # Set the environment name. This model is currently tested on CartPole-v1
 environment_name = 'LunarLander-v2'
@@ -71,180 +70,22 @@ DISABLE_RANDOM = False # Disable epsilon_greedy exploration function. [Default: 
 SAVING_ENABLED = True # Enable saving of model files. [Default: True]
 LEARNING_ENABLED = True # Enable model training. [Default: True]
 
-eps = 0.05 # Starting epsilon value, used in the epsilon_greedy policy. [Default: 0.5]
-EPS_DECAY = 0.0001 # How much epsilon decays each time a random action is chosen. [Default: 0.0001]
+eps = 2 # Starting epsilon value, used in the epsilon_greedy policy. [Default: 0.5]
+EPS_DECAY = 0.001 # How much epsilon decays each time a random action is chosen. [Default: 0.0001]
 MIN_EPS = 0.05 # Minimum epsilon/random action chance. Keep this above 0 to encourage continued learning. [Default: 0.01]
 
-PLOT_DETAIL = 10000 # The maximum number of points to display at once, afterward this amount of points will be uniformly pulled from the set of all points.
-MEDIAN_SMOOTHING = 0 # The amount to divide by for median smooth. In this case, 0 = off. 1 should also = off.
-
 # Surprisal is calculated by taking the sum(abs(next_state_batch - next_state_guess)**exponent)
-SURPRISAL_WEIGHT = 0.04 # The amount that surprisal influences the reward function. [Default: 0.01]
+SURPRISAL_WEIGHT = 0.02 # The amount that surprisal influences the reward function. [Default: 0.01]
 SURPRISAL_EXPONENT = 2 # The exponent applied to individual differences in next state guess. Essentially, how influential are outliers. [Default: 2]
-SURPRISAL_MINUS = 5
+SURPRISAL_MINUS = 1
 
 plt.ion()
-fig, axs = plt.subplots(2, 2) # Generate original figure for matplotlib
 
-class Multiplot():
-    """
-    Plots multiple plots in a figure using names.
-
-    Attributes:
-        plots (dict[str,list]): Stores y-points for plots by name.
-        names (list[str]): The list of line names, including row-breaks/column-breaks with "rb" and "cb".
-    """
-    def __init__(self, names):
-        global fig, axs
-        """
-        The constructor for the Multiplot class.
-
-        Parameters:
-            names (list[str]): The list of line names, including row-breaks/column-breaks with "rb" and "cb".
-        """
-        self.plots = {} 
-        self.names = names
-        
-        # Initialize empty array for each named line, excluding rb and cb flags
-        ax_idx = [0, 0]
-        curr_ax = axs[0][0]
-        for n in names:
-            if n != "rb" and n!= "cb":
-                self.plots[n] = []
-
-            if n == "rb":
-                ax_idx[0] += 1
-
-            # Column break
-            if n == "cb":
-                ax_idx[1] += 1
-                ax_idx[0] = 0
-
-            # After changing curr_ax position, clear it.
-            if n == "cb" or n == "rb":
-                curr_ax = axs[ax_idx[0], ax_idx[1]]
-                continue
-
-            curr_ax.plot([0, 0], label=n)
-            curr_ax.legend()
-
-            fig.canvas.draw()
-            fig.canvas.flush_events()
-
-    def add_entry(self, name, entry):
-        """
-        Appends a y-value to a named line of the Multiplot.
-
-        Parameters:
-            name (str): A name from the list this Multiplot was initalized with.
-            entry (float | list[float] | ndarray): The y-value of the point (float) or points (1-d array of floats).
-        """
-
-        self.plots[name] = np.append(self.plots.get(name), entry)
-    
-    def plot_all(self):
-        """
-        Plots all of the mulitplot lines.
-        """
-        global fig, axs
-        ax_idx = [0, 0]
-        line_idx = 0
-
-        # Clear the top left box, since it will not be preceded by an row break (rb) or column break (cb)
-        curr_ax = axs[0, 0]
-        lines = curr_ax.get_lines()
-
-        # Loop through the names
-        for name in self.names:
-            # Row break
-            if name == "rb":
-                ax_idx[0] += 1
-
-            # Column break
-            if name == "cb":
-                ax_idx[1] += 1
-                ax_idx[0] = 0
-
-            # After changing curr_ax position, clear it.
-            if name == "cb" or name == "rb":
-                curr_ax = axs[ax_idx[0], ax_idx[1]]
-                lines = curr_ax.get_lines()
-                line_idx = 0
-                continue
-            
-            # If the named line has any points, plot them w/ legend
-            if len(self.plots[name]) > 0:
-                np_plot = np.array(self.plots.get(name))
-                
-                idxs = np.linspace(0, len(np_plot) - 1, min(len(np_plot), PLOT_DETAIL))
-                
-                if len(np_plot) > PLOT_DETAIL:
-                    np_plot = [np_plot[int(i)] for i in idxs]
-
-                if MEDIAN_SMOOTHING > 0:
-                    median = np.median(np_plot)
-                    smoothed_plot = median + (np_plot - median) / MEDIAN_SMOOTHING
-                else: smoothed_plot = np_plot
-
-                x = np.linspace(0, step - 1, min(len(smoothed_plot), PLOT_DETAIL))
-                lines[line_idx].set_data(x, smoothed_plot)
-            
-            curr_ax.relim()
-            curr_ax.autoscale()
-
-            line_idx += 1
-        # Redraw the figure
-        fig.canvas.draw()
-        fig.canvas.flush_events()
-        fig.tight_layout()
-
-class TimeTracker():
-    """
-    Tracks Time
-
-    Attributes:
-        title (str): The title of the time tracker.
-        start_time (int): The starting time of the counter, in nanoseconds since the Epoch.
-        end_time (int): The ending time of the counter, in nanoseconds since the Epoch.
-    """
-    def __init__(self, title):
-        """
-        The constructor for the TimeTracker class.
-
-        Parameters:
-            title (str): The title of the time tracker.
-        """
-        self.title = title
-        self.start_time = time.time_ns()
-        self.end_time = time.time_ns()
-
-    def start(self):
-        """
-        Sets the start time of the time tracker.
-        """
-        self.start_time = time.time_ns()
-        return self.start_time
-    
-    def end(self):
-        """
-        Sets the end time of the time tracker.
-        """
-        self.end_time = time.time_ns()
-        return self.end_time
-    
-    def print_log(self):
-        """
-        Sets the end of the timer, and then prints the difference between start_time and end_time (the total time elapsed).
-        """
-        self.end()
-        delta = (self.end_time - self.start_time)
-
-        print(f"{self.title} took {round(delta * 1e-6, 0)}ms")
+multiplot = Multiplot(names=("a_loss", "rb", "real_reward", "cumulative_reward", "natural_reward", "cb", "surprisal", "grad_norm", "rb", "output_0", "output_1", "output_2", "output_3"))
+greedy_epsilon = GreedyEpsilon(DISABLE_RANDOM, EPS_DECAY, MIN_EPS)
 
 # torch.autograd.set_detect_anomaly(True)
 torch.set_printoptions(2, sci_mode=False)
-
-multiplot = Multiplot(names=("a_loss", "rb", "real_reward", "cumulative_reward", "natural_reward", "cb", "surprisal", "grad_norm", "rb", "output_0", "output_1", "output_2", "output_3"))
 
 class CustomDQN(torch.nn.Module):
     """
@@ -301,7 +142,7 @@ class CustomDQN(torch.nn.Module):
         a = F.leaky_relu(self.lin_2a(x)) 
         a = self.lin_oA(a)
 
-        if not training and greedy_epsilon():
+        if not training and greedy_epsilon.choose(eps):
             a = torch.rand_like(a) * 2 - 1
         
         chosen_actions = torch.argmax(a, dim=1)
@@ -376,34 +217,6 @@ class MemoryStack(object):
 
 actor_mem = MemoryStack(1000000)
 
-def greedy_epsilon():
-    """
-    Decide if the action will be random or not.
-
-    Returns:
-        boolean:
-            `True` if randomly chosen number (0, 1] is less than epsilon (eps).
-            
-            Otherwise, `False`.
-    """
-    global eps
-    
-    if DISABLE_RANDOM:
-        return False
-
-    rand_action_roll = 0
-    rand_action_odds = eps  # Decaying epsilon
-
-    rand_action_roll = random.uniform(0, 1)
-
-    if rand_action_roll < rand_action_odds:
-        eps = max(eps * (1 - EPS_DECAY), MIN_EPS)
-        return True
-    
-    else:
-        return False
-
-
 def try_learning():
     """
     Perform checks and start `model_train()`.
@@ -440,8 +253,8 @@ def affect_short_mem(reward):
     # Only apply if the current reward exceeds a threshold. 
     # Affect short_memory reward values based on reward recieved currently, diminishing for less recent events.
     if reward < REWARD_AFFECT_THRESH[0] or reward > REWARD_AFFECT_THRESH[1]:
-        for i in range(1, len(short_memory) + 1):
-            short_memory[-i][3] += reward / (i + 1)
+        for i in range(0, len(short_memory)):
+            short_memory[-(i + 1)][3] += reward / (i + 1)
 
 def send_short_to_long_mem(n):
     """
@@ -583,7 +396,7 @@ def model_train(batch_size):
     # Get the new model output for each state in the batch, including a guess at the next state
     state_values, next_state_guess = actor_model.forward(state_batch, real_actions=action_batch, training=True)
     pred_diff = next_state_batch - next_state_guess
-    abs_pred_diff = torch.abs(pred_diff)**SURPRISAL_EXPONENT
+    abs_pred_diff = (torch.abs(pred_diff) + 1)**SURPRISAL_EXPONENT - 1
     surprisal = torch.sum(abs_pred_diff, 1)
     scaled_surprisal = (surprisal - SURPRISAL_MINUS) * SURPRISAL_WEIGHT
     reward_batch += scaled_surprisal
@@ -654,7 +467,7 @@ def main():
         for episode in tqdm(range(EPISODES_PER_EPOCH)):
             model_infer()
 
-        multiplot.plot_all()
+        multiplot.plot_all(step)
 
 
 main()
